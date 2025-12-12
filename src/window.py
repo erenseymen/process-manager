@@ -10,6 +10,7 @@ import signal
 from gi.repository import Gtk, Adw, GLib, Gio, Pango, Gdk
 from .process_manager import ProcessManager
 from .system_stats import SystemStats
+from .gpu_stats import GPUStats
 
 
 class TerminationDialog(Adw.Window):
@@ -344,6 +345,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.settings = app.settings
         self.process_manager = ProcessManager()
         self.system_stats = SystemStats()
+        self.gpu_stats = GPUStats()
+        
+        # Current active tab
+        self.current_tab = 'processes'  # 'processes' or 'gpu'
         
         # Persistent selection tracking
         # Key: PID, Value: dict with process info (name, user, etc.)
@@ -422,30 +427,38 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.search_bar.set_search_mode(False)  # Hidden by default
         main_box.append(self.search_bar)
         
-        # Key controller for typing to trigger search
+        # Key controller for typing to trigger search and tab switching
         key_controller = Gtk.EventControllerKey()
         key_controller.connect("key-pressed", self.on_key_pressed)
         self.add_controller(key_controller)
         
-        # Selection panel (above process list)
-        self.selection_panel = self.create_selection_panel()
-        main_box.append(self.selection_panel)
+        # Create ViewStack for tabs
+        self.view_stack = Adw.ViewStack()
+        self.view_stack.set_transition_type(Adw.ViewStackTransitionType.SLIDE)
         
-        # Process list
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_hexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        # Processes tab
+        processes_page = self.create_processes_tab()
+        self.view_stack.add_titled(processes_page, "processes", "Processes")
         
-        self.process_view = self.create_process_view()
-        scrolled.set_child(self.process_view)
-        main_box.append(scrolled)
+        # GPU tab
+        gpu_page = self.create_gpu_tab()
+        self.view_stack.add_titled(gpu_page, "gpu", "GPU")
         
-        # High usage processes panel (above stats bar)
-        self.high_usage_panel = self.create_high_usage_panel()
-        main_box.append(self.high_usage_panel)
+        # Set initial visible tab
+        self.view_stack.set_visible_child_name("processes")
         
-        # System stats bar
+        # ViewSwitcher for tab navigation
+        view_switcher = Adw.ViewSwitcher()
+        view_switcher.set_stack(self.view_stack)
+        view_switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+        header.set_title_widget(view_switcher)
+        
+        # Connect to view stack changes
+        self.view_stack.connect("notify::visible-child", self.on_tab_changed)
+        
+        main_box.append(self.view_stack)
+        
+        # System stats bar (shared between tabs)
         self.stats_bar = self.create_stats_bar()
         main_box.append(self.stats_bar)
     
@@ -458,6 +471,60 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         menu.append("Quit", "app.quit")
         
         return menu
+    
+    def create_processes_tab(self):
+        """Create the processes tab content."""
+        tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        
+        # Selection panel (above process list)
+        self.selection_panel = self.create_selection_panel()
+        tab_box.append(self.selection_panel)
+        
+        # Process list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        
+        self.process_view = self.create_process_view()
+        scrolled.set_child(self.process_view)
+        tab_box.append(scrolled)
+        
+        # High usage processes panel (above stats bar)
+        self.high_usage_panel = self.create_high_usage_panel()
+        tab_box.append(self.high_usage_panel)
+        
+        return tab_box
+    
+    def create_gpu_tab(self):
+        """Create the GPU tab content."""
+        tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        
+        # GPU process list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        
+        self.gpu_process_view = self.create_gpu_process_view()
+        scrolled.set_child(self.gpu_process_view)
+        tab_box.append(scrolled)
+        
+        return tab_box
+    
+    def on_tab_changed(self, stack, param):
+        """Handle tab change."""
+        visible_child = stack.get_visible_child_name()
+        if visible_child == "gpu":
+            self.current_tab = 'gpu'
+            # Start GPU monitoring
+            self.refresh_gpu_processes()
+            self.update_system_stats()  # Update stats to show GPU section
+        else:
+            self.current_tab = 'processes'
+            # Refresh regular processes
+            self.refresh_processes()
+            self.update_system_stats()  # Update stats to hide GPU section
     
     def on_all_user_toggled(self, button):
         """Handle All/User toggle button."""
@@ -570,6 +637,104 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.list_store.connect("sort-column-changed", self.on_sort_column_changed)
         
         self.tree_view = tree_view
+        return tree_view
+    
+    def create_gpu_process_view(self):
+        """Create the GPU process list view."""
+        # Determine which GPU columns to show based on available GPUs
+        gpu_types = self.gpu_stats.gpu_types
+        base_columns = [
+            ("Process Name", 0, 200),
+            ("CPU %", 1, 80),
+            ("Memory", 2, 100),
+            ("PID", 3, 80),
+        ]
+        
+        # Add GPU-specific columns
+        gpu_columns = []
+        col_id = 4
+        if 'nvidia' in gpu_types:
+            gpu_columns.append(("NVIDIA GPU %", col_id, 100))
+            col_id += 1
+            gpu_columns.append(("NVIDIA Enc %", col_id, 100))
+            col_id += 1
+            gpu_columns.append(("NVIDIA Dec %", col_id, 100))
+            col_id += 1
+        if 'intel' in gpu_types:
+            gpu_columns.append(("Intel GPU %", col_id, 100))
+            col_id += 1
+            gpu_columns.append(("Intel Enc %", col_id, 100))
+            col_id += 1
+            gpu_columns.append(("Intel Dec %", col_id, 100))
+            col_id += 1
+        if 'amd' in gpu_types:
+            gpu_columns.append(("AMD GPU %", col_id, 100))
+            col_id += 1
+            gpu_columns.append(("AMD Enc %", col_id, 100))
+            col_id += 1
+            gpu_columns.append(("AMD Dec %", col_id, 100))
+            col_id += 1
+        
+        # Calculate total columns needed (minimum 4 for base columns)
+        total_cols = max(4, 4 + len(gpu_columns))
+        
+        # Create list store with dynamic columns
+        # Columns: name, cpu, memory, pid, then GPU columns
+        col_types = [str] * total_cols
+        col_types[3] = int  # PID is int
+        self.gpu_list_store = Gtk.ListStore(*col_types)
+        
+        # Create tree view
+        tree_view = Gtk.TreeView(model=self.gpu_list_store)
+        tree_view.set_headers_clickable(True)
+        tree_view.set_enable_search(False)
+        
+        # Selection
+        selection = tree_view.get_selection()
+        selection.set_mode(Gtk.SelectionMode.MULTIPLE)
+        
+        # Columns
+        all_columns = base_columns + gpu_columns
+        for i, (title, col_id, width) in enumerate(all_columns):
+            renderer = Gtk.CellRendererText()
+            if col_id == 0:  # Process name - ellipsize
+                renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            
+            column = Gtk.TreeViewColumn(title, renderer, text=col_id)
+            column.set_resizable(True)
+            column.set_min_width(60)
+            column.set_fixed_width(width)
+            column.set_sort_column_id(col_id)
+            column.set_clickable(True)
+            
+            tree_view.append_column(column)
+        
+        # Store column mapping for GPU data
+        self.gpu_column_mapping = {}
+        col_idx = 4
+        if 'nvidia' in gpu_types:
+            self.gpu_column_mapping['nvidia'] = {
+                'gpu': col_idx,
+                'enc': col_idx + 1,
+                'dec': col_idx + 2
+            }
+            col_idx += 3
+        if 'intel' in gpu_types:
+            self.gpu_column_mapping['intel'] = {
+                'gpu': col_idx,
+                'enc': col_idx + 1,
+                'dec': col_idx + 2
+            }
+            col_idx += 3
+        if 'amd' in gpu_types:
+            self.gpu_column_mapping['amd'] = {
+                'gpu': col_idx,
+                'enc': col_idx + 1,
+                'dec': col_idx + 2
+            }
+            col_idx += 3
+        
+        self.gpu_tree_view = tree_view
         return tree_view
     
     def on_sort_column_changed(self, model):
@@ -1173,6 +1338,39 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         swap_box.append(swap_label_box)
         stats_box.append(swap_box)
         
+        # GPU stats section (shown when on GPU tab)
+        gpu_sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        stats_box.append(gpu_sep)
+        
+        gpu_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        
+        self.gpu_indicator = Gtk.DrawingArea()
+        self.gpu_indicator.set_size_request(24, 24)
+        self.gpu_indicator.set_draw_func(self.draw_gpu_indicator)
+        gpu_box.append(self.gpu_indicator)
+        
+        gpu_label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        
+        self.gpu_title = Gtk.Label(label="GPU")
+        self.gpu_title.add_css_class("heading")
+        self.gpu_title.set_halign(Gtk.Align.START)
+        gpu_label_box.append(self.gpu_title)
+        
+        self.gpu_details = Gtk.Label(label="0%")
+        self.gpu_details.add_css_class("dim-label")
+        self.gpu_details.set_halign(Gtk.Align.START)
+        gpu_label_box.append(self.gpu_details)
+        
+        self.gpu_enc_dec = Gtk.Label(label="Enc: 0% | Dec: 0%")
+        self.gpu_enc_dec.add_css_class("dim-label")
+        self.gpu_enc_dec.set_halign(Gtk.Align.START)
+        gpu_label_box.append(self.gpu_enc_dec)
+        
+        gpu_box.append(gpu_label_box)
+        stats_box.append(gpu_box)
+        self.gpu_stats_section = gpu_box
+        self.gpu_stats_sep = gpu_sep
+        
         # Separator
         sep2 = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
         stats_box.append(sep2)
@@ -1205,6 +1403,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         spacer.set_hexpand(True)
         stats_box.append(spacer)
         
+        # Initially hide GPU stats
+        self.gpu_stats_section.set_visible(False)
+        self.gpu_stats_sep.set_visible(False)
+        
         return stats_box
     
     def draw_memory_indicator(self, area, cr, width, height):
@@ -1218,6 +1420,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def draw_disk_indicator(self, area, cr, width, height):
         """Draw circular disk usage indicator."""
         self.draw_circular_indicator(cr, width, height, self.disk_percent, (0.2, 0.2, 0.8))
+    
+    def draw_gpu_indicator(self, area, cr, width, height):
+        """Draw circular GPU usage indicator."""
+        self.draw_circular_indicator(cr, width, height, self.gpu_percent, (0.8, 0.5, 0.2))
     
     def draw_circular_indicator(self, cr, width, height, percent, color):
         """Draw a circular progress indicator."""
@@ -1246,6 +1452,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     mem_percent = 0
     swap_percent = 0
     disk_percent = 0
+    gpu_percent = 0
+    gpu_encoding_percent = 0
+    gpu_decoding_percent = 0
     
     def on_selection_changed(self, selection):
         """Handle selection changes - sync with persistent selected_pids."""
@@ -1291,6 +1500,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def refresh_processes(self):
         """Refresh the process list."""
+        # Only refresh if we're on the processes tab
+        if self.current_tab != 'processes':
+            return
+        
         # Get filter settings from All/User toggle
         show_all = self.all_user_button.get_active()
         my_processes = not show_all
@@ -1381,6 +1594,92 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Update high usage panel
         self.update_high_usage_panel(all_processes)
     
+    def refresh_gpu_processes(self):
+        """Refresh the GPU process list."""
+        # Only refresh if we're on the GPU tab
+        if self.current_tab != 'gpu':
+            return
+        
+        # Get all processes
+        all_processes = self.process_manager.get_processes(
+            show_all=True,
+            my_processes=False,
+            active_only=False,
+            show_kernel_threads=False
+        )
+        all_process_map = {p['pid']: p for p in all_processes}
+        
+        # Get GPU process data (only when on GPU tab)
+        gpu_processes = self.gpu_stats.get_gpu_processes()
+        
+        # Combine process info with GPU info
+        combined_processes = []
+        for pid, proc_info in all_process_map.items():
+            gpu_info = gpu_processes.get(pid, {})
+            combined_processes.append({
+                'pid': pid,
+                'name': proc_info['name'],
+                'cpu': proc_info['cpu'],
+                'memory': proc_info['memory'],
+                'gpu_info': gpu_info
+            })
+        
+        # Also include processes that have GPU usage but might not be in regular process list
+        for pid, gpu_info in gpu_processes.items():
+            if pid not in all_process_map:
+                # Try to get basic process info
+                try:
+                    proc_details = self.process_manager.get_process_details(pid)
+                    combined_processes.append({
+                        'pid': pid,
+                        'name': proc_details.get('cmdline', 'Unknown').split()[0] if proc_details.get('cmdline') else 'Unknown',
+                        'cpu': 0.0,
+                        'memory': 0,
+                        'gpu_info': gpu_info
+                    })
+                except Exception:
+                    pass
+        
+        # Update GPU list store
+        self.gpu_list_store.clear()
+        for proc in combined_processes:
+            row_data = [
+                proc['name'],
+                f"{proc['cpu']:.1f}%",
+                self.format_memory(proc['memory']),
+                proc['pid']
+            ]
+            
+            # Add GPU columns based on available GPUs
+            gpu_info = proc.get('gpu_info', {})
+            gpu_type = gpu_info.get('gpu_type', '')
+            
+            if 'nvidia' in self.gpu_stats.gpu_types:
+                if gpu_type == 'nvidia':
+                    row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
+                    row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
+                    row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")
+                else:
+                    row_data.extend(["", "", ""])
+            
+            if 'intel' in self.gpu_stats.gpu_types:
+                if gpu_type == 'intel':
+                    row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
+                    row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
+                    row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")
+                else:
+                    row_data.extend(["", "", ""])
+            
+            if 'amd' in self.gpu_stats.gpu_types:
+                if gpu_type == 'amd':
+                    row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
+                    row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
+                    row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")
+                else:
+                    row_data.extend(["", "", ""])
+            
+            self.gpu_list_store.append(row_data)
+    
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""
         if bytes_val >= 1024 ** 3:
@@ -1392,7 +1691,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         return f"{bytes_val} B"
     
     def update_system_stats(self):
-        """Update system memory, swap, and disk stats."""
+        """Update system memory, swap, disk, and GPU stats."""
         stats = self.system_stats.get_memory_info()
         
         # Memory
@@ -1417,6 +1716,27 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         )
         self.swap_indicator.queue_draw()
         
+        # GPU stats (only update when on GPU tab)
+        if self.current_tab == 'gpu':
+            gpu_stats = self.gpu_stats.get_total_gpu_stats()
+            self.gpu_percent = gpu_stats.get('total_gpu_usage', 0)
+            self.gpu_encoding_percent = gpu_stats.get('total_encoding', 0)
+            self.gpu_decoding_percent = gpu_stats.get('total_decoding', 0)
+            
+            self.gpu_details.set_text(f"{self.gpu_percent:.1f}%")
+            self.gpu_enc_dec.set_text(
+                f"Enc: {self.gpu_encoding_percent:.1f}% | Dec: {self.gpu_decoding_percent:.1f}%"
+            )
+            self.gpu_indicator.queue_draw()
+            
+            # Show GPU stats section
+            self.gpu_stats_section.set_visible(True)
+            self.gpu_stats_sep.set_visible(True)
+        else:
+            # Hide GPU stats section when not on GPU tab
+            self.gpu_stats_section.set_visible(False)
+            self.gpu_stats_sep.set_visible(False)
+        
         # Disk
         disk_stats = self.system_stats.get_disk_info()
         disk_used = disk_stats['disk_used']
@@ -1438,8 +1758,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def on_refresh_timeout(self):
         """Handle refresh timer."""
-        self.refresh_processes()
-        self.update_system_stats()
+        if self.current_tab == 'gpu':
+            self.refresh_gpu_processes()
+            self.update_system_stats()  # Also updates GPU stats
+        else:
+            self.refresh_processes()
+            self.update_system_stats()
         return True  # Continue timer
     
     def on_search_changed(self, entry):
@@ -1490,6 +1814,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         has_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
         has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        
+        # Handle Ctrl+TAB for tab switching
+        if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
+            current_name = self.view_stack.get_visible_child_name()
+            if current_name == "processes":
+                self.view_stack.set_visible_child_name("gpu")
+            else:
+                self.view_stack.set_visible_child_name("processes")
+            return True  # Event handled
         
         # Handle Escape key to close search bar
         if keyval == Gdk.KEY_Escape:

@@ -30,3 +30,23 @@ This file contains important context about the codebase for AI assistants.
 - Stats are updated periodically via `update_system_stats()` method
 - Disk usage is retrieved via `SystemStats.get_disk_info()` using `shutil.disk_usage()`
 
+### GPU Monitoring (2025-12-12)
+- GPU monitoring module located in `src/gpu_stats.py`
+- Supports Intel, NVIDIA, and AMD GPUs
+- GPU detection happens at initialization via `GPUStats._detect_gpus()`
+- GPU commands only run when GPU tab is active (performance optimization)
+- GPU tab shows process list with additional columns:
+  - GPU usage percentage (per GPU type)
+  - GPU encoding usage percentage
+  - GPU decoding usage percentage
+- GPU stats bar shows total GPU usage, encoding, and decoding when on GPU tab
+- Tab switching via Ctrl+TAB shortcut or ViewSwitcher in header
+
+### Tab System (2025-12-12)
+- Uses Adw.ViewStack for tab management
+- Two tabs: "Processes" (default) and "GPU"
+- Tab switching via Ctrl+TAB keyboard shortcut
+- ViewSwitcher widget in header bar for visual tab navigation
+- Each tab has its own process list view
+- GPU commands only execute when GPU tab is active
+
