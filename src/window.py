@@ -135,8 +135,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Create tree view
         tree_view = Gtk.TreeView(model=self.list_store)
         tree_view.set_headers_clickable(True)
-        tree_view.set_enable_search(True)
-        tree_view.set_search_column(0)
+        tree_view.set_enable_search(False)
         
         # Selection
         selection = tree_view.get_selection()
