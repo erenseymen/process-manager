@@ -445,45 +445,45 @@ class GPUStats:
             except Exception:
                 pass
         
-        # If still no processes found from intel_gpu_top output,
-        # find processes that have Intel GPU file descriptors open
-        # This is a fallback method that doesn't require parsing intel_gpu_top output
-        if not processes:
-            try:
-                # Find processes with DRM (Intel GPU) file descriptors
-                for proc_dir in glob.glob('/proc/[0-9]*'):
-                    try:
-                        pid = int(os.path.basename(proc_dir))
-                        fd_dir = os.path.join(proc_dir, 'fd')
-                        if not os.path.isdir(fd_dir):
-                            continue
-                        
-                        # Check if process has any DRM file descriptors
-                        has_drm_fd = False
-                        for fd in os.listdir(fd_dir):
-                            fd_path = os.path.join(fd_dir, fd)
-                            try:
-                                target = os.readlink(fd_path)
-                                # Intel GPU devices are typically /dev/dri/card* or /dev/dri/renderD*
-                                if '/dev/dri/' in target:
-                                    has_drm_fd = True
-                                    break
-                            except (OSError, ValueError):
-                                continue
-                        
-                        # If process has DRM file descriptors, include it with 0% usage initially
-                        # Usage will be calculated by intel_gpu_top in subsequent calls if available
-                        if has_drm_fd and pid not in processes:
-                            processes[pid] = {
-                                'gpu_usage': 0.0,
-                                'gpu_memory': 0,
-                                'encoding': 0.0,
-                                'decoding': 0.0
-                            }
-                    except (ValueError, OSError, PermissionError):
+        # Always check for processes with Intel GPU file descriptors open
+        # This ensures we catch all processes using Intel GPU, even if intel_gpu_top
+        # doesn't provide per-process information or fails
+        try:
+            # Find processes with DRM (Intel GPU) file descriptors
+            for proc_dir in glob.glob('/proc/[0-9]*'):
+                try:
+                    pid = int(os.path.basename(proc_dir))
+                    fd_dir = os.path.join(proc_dir, 'fd')
+                    if not os.path.isdir(fd_dir):
                         continue
-            except Exception:
-                pass
+                    
+                    # Check if process has any DRM file descriptors
+                    has_drm_fd = False
+                    for fd in os.listdir(fd_dir):
+                        fd_path = os.path.join(fd_dir, fd)
+                        try:
+                            target = os.readlink(fd_path)
+                            # Intel GPU devices are typically /dev/dri/card* or /dev/dri/renderD*
+                            if '/dev/dri/' in target:
+                                has_drm_fd = True
+                                break
+                        except (OSError, ValueError):
+                            continue
+                    
+                    # If process has DRM file descriptors, include it
+                    # If it already exists from intel_gpu_top output, keep the usage data
+                    # Otherwise add it with 0% usage (will be updated on next call if available)
+                    if has_drm_fd and pid not in processes:
+                        processes[pid] = {
+                            'gpu_usage': 0.0,
+                            'gpu_memory': 0,
+                            'encoding': 0.0,
+                            'decoding': 0.0
+                        }
+                except (ValueError, OSError, PermissionError):
+                    continue
+        except Exception:
+            pass
         
         return processes
     
