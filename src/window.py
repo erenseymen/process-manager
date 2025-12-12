@@ -51,39 +51,32 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Header bar
         header = Adw.HeaderBar()
         
-        # Menu button
-        menu_button = Gtk.MenuButton()
-        menu_button.set_icon_name("open-menu-symbolic")
-        menu_button.set_menu_model(self.create_menu())
-        header.pack_end(menu_button)
+        # Kill button
+        kill_button = Gtk.Button()
+        kill_button.set_icon_name("process-stop-symbolic")
+        kill_button.set_tooltip_text("End Process")
+        kill_button.add_css_class("destructive-action")
+        kill_button.connect("clicked", self.on_kill_process)
+        header.pack_start(kill_button)
         
-        # Search button
-        self.search_button = Gtk.ToggleButton()
-        self.search_button.set_icon_name("system-search-symbolic")
-        self.search_button.connect("toggled", self.on_search_toggled)
-        header.pack_end(self.search_button)
-        
-        # Refresh button
-        refresh_button = Gtk.Button()
-        refresh_button.set_icon_name("view-refresh-symbolic")
-        refresh_button.set_tooltip_text("Refresh (F5)")
-        refresh_button.connect("clicked", lambda b: self.refresh_processes())
-        header.pack_end(refresh_button)
+        # All/User toggle button
+        self.all_user_button = Gtk.ToggleButton()
+        self.all_user_button.set_label("All")
+        self.all_user_button.set_active(True)  # Default to "All"
+        self.all_user_button.connect("toggled", self.on_all_user_toggled)
+        header.pack_start(self.all_user_button)
         
         main_box.append(header)
         
-        # Search bar
+        # Search bar (always visible)
         self.search_bar = Gtk.SearchBar()
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", self.on_search_changed)
         self.search_bar.set_child(self.search_entry)
         self.search_bar.connect_entry(self.search_entry)
+        self.search_bar.set_search_mode(True)  # Always visible
         main_box.append(self.search_bar)
-        
-        # Toolbar
-        toolbar = self.create_toolbar()
-        main_box.append(toolbar)
         
         # Process list
         scrolled = Gtk.ScrolledWindow()
@@ -98,62 +91,13 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.stats_bar = self.create_stats_bar()
         main_box.append(self.stats_bar)
     
-    def create_menu(self):
-        """Create the application menu."""
-        menu = Gio.Menu()
-        
-        menu.append("Preferences", "app.preferences")
-        menu.append("Keyboard Shortcuts", "win.show-help-overlay")
-        menu.append("About Process Manager", "app.about")
-        menu.append("Quit", "app.quit")
-        
-        return menu
-    
-    def create_toolbar(self):
-        """Create the toolbar."""
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        toolbar.set_margin_start(12)
-        toolbar.set_margin_end(12)
-        toolbar.set_margin_top(6)
-        toolbar.set_margin_bottom(6)
-        toolbar.add_css_class("toolbar")
-        
-        # Kill button
-        kill_button = Gtk.Button()
-        kill_button.set_icon_name("process-stop-symbolic")
-        kill_button.set_tooltip_text("End Process")
-        kill_button.add_css_class("destructive-action")
-        kill_button.connect("clicked", self.on_kill_process)
-        toolbar.append(kill_button)
-        
-        # Separator
-        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        toolbar.append(separator)
-        
-        # Filter dropdown
-        filter_label = Gtk.Label(label="Show:")
-        toolbar.append(filter_label)
-        
-        self.filter_dropdown = Gtk.DropDown()
-        filter_model = Gtk.StringList()
-        filter_model.append("All Processes")
-        filter_model.append("My Processes")
-        filter_model.append("Active Processes")
-        self.filter_dropdown.set_model(filter_model)
-        self.filter_dropdown.connect("notify::selected", self.on_filter_changed)
-        toolbar.append(self.filter_dropdown)
-        
-        # Spacer
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        toolbar.append(spacer)
-        
-        # Process count label
-        self.process_count_label = Gtk.Label()
-        self.process_count_label.add_css_class("dim-label")
-        toolbar.append(self.process_count_label)
-        
-        return toolbar
+    def on_all_user_toggled(self, button):
+        """Handle All/User toggle button."""
+        if button.get_active():
+            button.set_label("All")
+        else:
+            button.set_label("User")
+        self.refresh_processes()
     
     def create_process_view(self):
         """Create the process list view."""
@@ -354,11 +298,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def refresh_processes(self):
         """Refresh the process list."""
-        # Get filter settings
-        filter_idx = self.filter_dropdown.get_selected()
-        show_all = filter_idx == 0
-        my_processes = filter_idx == 1
-        active_only = filter_idx == 2
+        # Get filter settings from All/User toggle
+        show_all = self.all_user_button.get_active()
+        my_processes = not show_all
         
         # Get search text
         search_text = self.search_entry.get_text().lower()
@@ -367,7 +309,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         processes = self.process_manager.get_processes(
             show_all=show_all,
             my_processes=my_processes,
-            active_only=active_only
+            active_only=False
         )
         
         # Filter by search
@@ -388,9 +330,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 str(proc['nice']),
                 proc['pid']
             ])
-        
-        # Update process count
-        self.process_count_label.set_text(f"{len(processes)} processes")
     
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""
@@ -439,18 +378,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.update_system_stats()
         return True  # Continue timer
     
-    def on_search_toggled(self, button):
-        """Handle search button toggle."""
-        self.search_bar.set_search_mode(button.get_active())
-        if button.get_active():
-            self.search_entry.grab_focus()
-    
     def on_search_changed(self, entry):
         """Handle search text change."""
-        self.refresh_processes()
-    
-    def on_filter_changed(self, dropdown, param):
-        """Handle filter change."""
         self.refresh_processes()
     
     def on_kill_process(self, button):

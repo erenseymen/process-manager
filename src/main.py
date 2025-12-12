@@ -43,13 +43,7 @@ class ProcessManagerApplication(Adw.Application):
         about_action.connect("activate", self.on_about)
         self.add_action(about_action)
         
-        # Preferences action
-        preferences_action = Gio.SimpleAction.new("preferences", None)
-        preferences_action.connect("activate", self.on_preferences)
-        self.add_action(preferences_action)
-        self.set_accels_for_action("app.preferences", ["<Control>comma"])
-        
-        # Refresh action
+        # Refresh action (F5 still works)
         refresh_action = Gio.SimpleAction.new("refresh", None)
         refresh_action.connect("activate", self.on_refresh)
         self.add_action(refresh_action)
@@ -81,12 +75,6 @@ class ProcessManagerApplication(Adw.Application):
             issue_url="https://github.com/processmanager/processmanager/issues"
         )
         about.present()
-    
-    def on_preferences(self, action, param):
-        """Show preferences dialog."""
-        from .preferences import PreferencesDialog
-        dialog = PreferencesDialog(self.window, self.settings)
-        dialog.present()
     
     def on_refresh(self, action, param):
         """Refresh process list."""
