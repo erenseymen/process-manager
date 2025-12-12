@@ -11,6 +11,7 @@
         "--device=dri",
         "--filesystem=host:ro",
         "--filesystem=/proc:ro",
+        "--filesystem=/sys:ro",
         "--talk-name=org.freedesktop.Flatpak"
     ],
     "cleanup": [
