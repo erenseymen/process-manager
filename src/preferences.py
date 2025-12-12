@@ -99,10 +99,32 @@ class PreferencesDialog(Adw.PreferencesWindow):
         thresholds_page.set_icon_name("dialog-warning-symbolic")
         self.add(thresholds_page)
         
-        # Warning thresholds group
+        # Change detection thresholds group
+        change_group = Adw.PreferencesGroup()
+        change_group.set_title("Change Detection")
+        change_group.set_description("Show processes when their resource usage changes by these amounts")
+        thresholds_page.add(change_group)
+        
+        # CPU change threshold
+        cpu_change_row = Adw.SpinRow.new_with_range(1, 50, 1)
+        cpu_change_row.set_title("CPU Change Threshold")
+        cpu_change_row.set_subtitle("Show processes when CPU usage changes by this percentage")
+        cpu_change_row.set_value(self.settings.get("cpu_change_threshold"))
+        cpu_change_row.connect("notify::value", self.on_cpu_change_threshold_changed)
+        change_group.add(cpu_change_row)
+        
+        # Memory change threshold
+        mem_change_row = Adw.SpinRow.new_with_range(1, 50, 1)
+        mem_change_row.set_title("Memory Change Threshold")
+        mem_change_row.set_subtitle("Show processes when memory usage changes by this percentage")
+        mem_change_row.set_value(self.settings.get("memory_change_threshold"))
+        mem_change_row.connect("notify::value", self.on_mem_change_threshold_changed)
+        change_group.add(mem_change_row)
+        
+        # Warning thresholds group (for row highlighting)
         warning_group = Adw.PreferencesGroup()
         warning_group.set_title("Warning Thresholds")
-        warning_group.set_description("Set thresholds for highlighting high resource usage")
+        warning_group.set_description("Thresholds for highlighting high resource usage in list")
         thresholds_page.add(warning_group)
         
         # CPU threshold
@@ -165,6 +187,14 @@ class PreferencesDialog(Adw.PreferencesWindow):
             style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
         else:
             style_manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+    
+    def on_cpu_change_threshold_changed(self, row, param):
+        """Handle CPU change threshold change."""
+        self.settings.set("cpu_change_threshold", int(row.get_value()))
+    
+    def on_mem_change_threshold_changed(self, row, param):
+        """Handle memory change threshold change."""
+        self.settings.set("memory_change_threshold", int(row.get_value()))
     
     def on_cpu_threshold_changed(self, row, param):
         """Handle CPU threshold change."""

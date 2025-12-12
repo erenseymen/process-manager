@@ -27,14 +27,14 @@ APP_CSS = """
     border: 1px solid alpha(@warning_color, 0.3);
 }
 
-.high-usage-chip.high-cpu {
+.high-usage-chip.change-up {
     background-color: alpha(@error_color, 0.15);
     border-color: alpha(@error_color, 0.3);
 }
 
-.high-usage-chip.high-mem {
-    background-color: alpha(@warning_color, 0.15);
-    border-color: alpha(@warning_color, 0.3);
+.high-usage-chip.change-down {
+    background-color: alpha(@success_color, 0.15);
+    border-color: alpha(@success_color, 0.3);
 }
 
 .high-usage-chip .chip-name {

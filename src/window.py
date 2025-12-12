@@ -326,6 +326,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.selected_pids = {}
         self._updating_selection = False  # Flag to prevent recursive selection updates
         
+        # Cache for previous process stats (for change detection)
+        # Key: PID, Value: dict with cpu, memory values
+        self._prev_process_stats = {}
+        
         # Window setup
         self.set_title("Process Manager")
         self.set_default_size(
@@ -798,41 +802,63 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         return panel_box
     
     def update_high_usage_panel(self, processes):
-        """Update the high usage panel with processes exceeding thresholds."""
-        cpu_threshold = self.settings.get("cpu_threshold_warning")
-        mem_threshold = self.settings.get("memory_threshold_warning")
+        """Update the high usage panel with processes that changed significantly."""
+        cpu_change_threshold = self.settings.get("cpu_change_threshold")
+        mem_change_threshold = self.settings.get("memory_change_threshold")
         
         # Get total memory for percentage calculation
         stats = self.system_stats.get_memory_info()
         mem_total = stats['mem_total']
         
-        # Find processes exceeding thresholds
-        high_cpu = []
-        high_mem = []
+        # Find processes with significant changes
+        changed_cpu = []
+        changed_mem = []
         
+        # Build current stats and detect changes
+        current_stats = {}
         for proc in processes:
+            pid = proc['pid']
             cpu_percent = proc['cpu']
             mem_percent = (proc['memory'] / mem_total * 100) if mem_total > 0 else 0
             
-            if cpu_percent >= cpu_threshold:
-                high_cpu.append({
-                    'pid': proc['pid'],
-                    'name': proc['name'],
-                    'value': cpu_percent,
-                    'type': 'cpu'
-                })
+            current_stats[pid] = {
+                'cpu': cpu_percent,
+                'memory': mem_percent,
+                'name': proc['name']
+            }
             
-            if mem_percent >= mem_threshold:
-                high_mem.append({
-                    'pid': proc['pid'],
-                    'name': proc['name'],
-                    'value': mem_percent,
-                    'type': 'mem'
-                })
+            # Check for changes if we have previous data
+            if pid in self._prev_process_stats:
+                prev = self._prev_process_stats[pid]
+                cpu_change = cpu_percent - prev['cpu']
+                mem_change = mem_percent - prev['memory']
+                
+                # Check CPU change (absolute change >= threshold)
+                if abs(cpu_change) >= cpu_change_threshold:
+                    changed_cpu.append({
+                        'pid': pid,
+                        'name': proc['name'],
+                        'value': cpu_percent,
+                        'change': cpu_change,
+                        'type': 'cpu'
+                    })
+                
+                # Check memory change (absolute change >= threshold)
+                if abs(mem_change) >= mem_change_threshold:
+                    changed_mem.append({
+                        'pid': pid,
+                        'name': proc['name'],
+                        'value': mem_percent,
+                        'change': mem_change,
+                        'type': 'mem'
+                    })
         
-        # Sort by value descending
-        high_cpu.sort(key=lambda x: x['value'], reverse=True)
-        high_mem.sort(key=lambda x: x['value'], reverse=True)
+        # Update previous stats cache
+        self._prev_process_stats = current_stats
+        
+        # Sort by absolute change descending
+        changed_cpu.sort(key=lambda x: abs(x['change']), reverse=True)
+        changed_mem.sort(key=lambda x: abs(x['change']), reverse=True)
         
         # Clear existing items
         while True:
@@ -842,28 +868,36 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             self.high_usage_flow.remove(child)
         
         # Show/hide panel
-        has_high_usage = len(high_cpu) > 0 or len(high_mem) > 0
-        self.high_usage_panel.set_visible(has_high_usage)
+        has_changes = len(changed_cpu) > 0 or len(changed_mem) > 0
+        self.high_usage_panel.set_visible(has_changes)
         
-        if not has_high_usage:
+        if not has_changes:
             return
         
-        # Add high CPU processes
-        for proc in high_cpu[:5]:  # Limit to top 5
+        # Add CPU change processes
+        for proc in changed_cpu[:5]:  # Limit to top 5
             chip = self.create_high_usage_chip(proc, 'cpu')
             self.high_usage_flow.append(chip)
         
-        # Add high memory processes (avoid duplicates)
-        high_cpu_pids = {p['pid'] for p in high_cpu[:5]}
-        for proc in high_mem[:5]:  # Limit to top 5
-            if proc['pid'] not in high_cpu_pids:
+        # Add memory change processes (avoid duplicates)
+        changed_cpu_pids = {p['pid'] for p in changed_cpu[:5]}
+        for proc in changed_mem[:5]:  # Limit to top 5
+            if proc['pid'] not in changed_cpu_pids:
                 chip = self.create_high_usage_chip(proc, 'mem')
                 self.high_usage_flow.append(chip)
     
     def create_high_usage_chip(self, proc, usage_type):
-        """Create a chip widget for a high usage process."""
+        """Create a chip widget for a process with significant usage change."""
         chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         chip_box.add_css_class("high-usage-chip")
+        
+        change = proc.get('change', 0)
+        
+        # Add class based on change direction and type
+        if change > 0:
+            chip_box.add_css_class("change-up")
+        else:
+            chip_box.add_css_class("change-down")
         
         if usage_type == 'cpu':
             chip_box.add_css_class("high-cpu")
@@ -877,11 +911,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         name_label.add_css_class("chip-name")
         chip_box.append(name_label)
         
-        # Usage value
+        # Change indicator with arrow
+        arrow = "↑" if change > 0 else "↓"
         if usage_type == 'cpu':
-            value_text = f"CPU {proc['value']:.1f}%"
+            value_text = f"CPU {arrow}{abs(change):.1f}%"
         else:
-            value_text = f"Mem {proc['value']:.1f}%"
+            value_text = f"Mem {arrow}{abs(change):.1f}%"
         
         value_label = Gtk.Label(label=value_text)
         value_label.add_css_class("chip-value")

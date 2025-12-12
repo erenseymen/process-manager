@@ -16,6 +16,8 @@ class Settings:
         "confirm_kill": True,
         "cpu_threshold_warning": 80,
         "memory_threshold_warning": 80,
+        "cpu_change_threshold": 10,  # Show processes with CPU change >= this %
+        "memory_change_threshold": 5,  # Show processes with memory change >= this %
         "sort_column": "cpu",
         "sort_descending": True,
         "visible_columns": ["name", "cpu", "memory", "started", "user", "nice", "pid"],
