@@ -12,7 +12,6 @@ class Settings:
     
     DEFAULTS = {
         "refresh_interval": 2000,  # milliseconds
-        "show_all_processes": True,
         "show_kernel_threads": False,
         "confirm_kill": True,
         "cpu_threshold_warning": 80,
@@ -23,6 +22,7 @@ class Settings:
         "theme": "system",  # system, light, dark
         "window_width": 900,
         "window_height": 600,
+        "show_all_toggle": True,  # All/User toggle state (True = All, False = User)
     }
     
     def __init__(self):

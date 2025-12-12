@@ -57,14 +57,6 @@ class PreferencesDialog(Adw.PreferencesWindow):
         display_group.set_description("Configure what processes to show")
         general_page.add(display_group)
         
-        # Show all processes
-        all_proc_row = Adw.SwitchRow()
-        all_proc_row.set_title("Show All Processes")
-        all_proc_row.set_subtitle("Show processes from all users")
-        all_proc_row.set_active(self.settings.get("show_all_processes"))
-        all_proc_row.connect("notify::active", self.on_show_all_changed)
-        display_group.add(all_proc_row)
-        
         # Show kernel threads
         kernel_row = Adw.SwitchRow()
         kernel_row.set_title("Show Kernel Threads")
@@ -154,10 +146,6 @@ class PreferencesDialog(Adw.PreferencesWindow):
     def on_confirm_changed(self, row, param):
         """Handle confirm kill change."""
         self.settings.set("confirm_kill", row.get_active())
-    
-    def on_show_all_changed(self, row, param):
-        """Handle show all processes change."""
-        self.settings.set("show_all_processes", row.get_active())
     
     def on_kernel_changed(self, row, param):
         """Handle show kernel threads change."""

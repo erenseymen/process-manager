@@ -61,8 +61,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # All/User toggle button
         self.all_user_button = Gtk.ToggleButton()
-        self.all_user_button.set_label("All")
-        self.all_user_button.set_active(True)  # Default to "All"
+        # Restore saved toggle state
+        show_all = self.settings.get("show_all_toggle", True)
+        self.all_user_button.set_active(show_all)
+        self.all_user_button.set_label("All" if show_all else "User")
         self.all_user_button.connect("toggled", self.on_all_user_toggled)
         header.pack_start(self.all_user_button)
         
@@ -113,6 +115,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             button.set_label("All")
         else:
             button.set_label("User")
+        # Save the toggle state
+        self.settings.set("show_all_toggle", button.get_active())
         self.refresh_processes()
     
     def create_process_view(self):

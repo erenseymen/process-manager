@@ -131,7 +131,6 @@ process-manager/
 Settings are stored in `~/.config/process-manager/settings.json` and include:
 
 - **Refresh Interval**: Time between updates (500-10000ms)
-- **Show All Processes**: Display processes from all users
 - **Show Kernel Threads**: Include kernel threads in the list
 - **Confirm Before Killing**: Show confirmation dialog before ending processes
 - **CPU/Memory Thresholds**: Warning thresholds for highlighting

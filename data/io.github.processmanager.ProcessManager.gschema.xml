@@ -26,10 +26,10 @@
       <description>Time between process list updates in milliseconds</description>
     </key>
     
-    <key name="show-all-processes" type="b">
+    <key name="show-all-toggle" type="b">
       <default>true</default>
-      <summary>Show all processes</summary>
-      <description>Show processes from all users</description>
+      <summary>Show all toggle</summary>
+      <description>All/User toggle state (true = All, false = User)</description>
     </key>
     
     <key name="show-kernel-threads" type="b">
