@@ -370,14 +370,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.auto_refresh_button.connect("toggled", self.on_auto_refresh_toggled)
         header.pack_start(self.auto_refresh_button)
         
-        # Kill button
-        kill_button = Gtk.Button()
-        kill_button.set_icon_name("process-stop-symbolic")
-        kill_button.set_tooltip_text("End Process")
-        kill_button.add_css_class("destructive-action")
-        kill_button.connect("clicked", self.on_kill_process)
-        header.pack_start(kill_button)
-        
         # All/User toggle button
         self.all_user_button = Gtk.ToggleButton()
         # Restore saved toggle state
@@ -624,6 +616,14 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.selection_title.set_halign(Gtk.Align.START)
         self.selection_title.set_hexpand(True)
         header_box.append(self.selection_title)
+        
+        # End Process button
+        self.end_process_button = Gtk.Button()
+        self.end_process_button.set_icon_name("process-stop-symbolic")
+        self.end_process_button.set_tooltip_text("End Selected Processes")
+        self.end_process_button.add_css_class("destructive-action")
+        self.end_process_button.connect("clicked", self.on_kill_process)
+        header_box.append(self.end_process_button)
         
         # Clear all button
         self.clear_button = Gtk.Button()
