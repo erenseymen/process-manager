@@ -423,7 +423,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def on_key_pressed(self, controller, keyval, keycode, state):
         """Handle key press to open search bar and type."""
-        # If search bar is already open and focused, let it handle events
+        # If search bar is visible and focused, let it handle keys
         if self.search_bar.get_search_mode() and self.search_entry.has_focus():
             return False
         
@@ -436,7 +436,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             self.search_bar.set_search_mode(True)
             # Focus search entry
             self.search_entry.grab_focus()
-            # Append character to existing text
+            # Append to existing text or set new text
             current_text = self.search_entry.get_text()
             self.search_entry.set_text(current_text + char)
             # Move cursor to end
