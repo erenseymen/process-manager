@@ -917,6 +917,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         tree_view = Gtk.TreeView(model=self.list_store)
         tree_view.set_headers_clickable(True)
         tree_view.set_enable_search(False)
+        tree_view.set_search_column(-1)  # Disable search completely
         
         # Selection
         selection = tree_view.get_selection()
@@ -1027,6 +1028,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         tree_view = Gtk.TreeView(model=self.gpu_list_store)
         tree_view.set_headers_clickable(True)
         tree_view.set_enable_search(False)
+        tree_view.set_search_column(-1)  # Disable search completely
         
         # Selection
         selection = tree_view.get_selection()
@@ -2333,12 +2335,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 return True  # Event handled
             return False
         
-        # Handle Backspace - open search and clear search term
-        if keyval == Gdk.KEY_BackSpace and not has_ctrl and not has_alt:
-            self.search_bar.set_search_mode(True)
-            self.search_entry.set_text("")
-            self.search_entry.grab_focus()
-            return True  # Event handled
         
         # Handle Space - toggle Play/Pause auto refresh
         if keyval == Gdk.KEY_space and not has_ctrl and not has_alt and not has_shift:
@@ -2366,22 +2362,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # If search bar is visible and focused, let it handle keys
         if self.search_bar.get_search_mode() and self.search_entry.has_focus():
             return False
-        
-        # Get the character from keyval
-        char = chr(keyval) if 32 <= keyval <= 126 else None
-        
-        # Check if it's a printable character (letter, number, etc.)
-        if char and char.isprintable():
-            # Open search bar
-            self.search_bar.set_search_mode(True)
-            # Focus search entry
-            self.search_entry.grab_focus()
-            # Append to existing text or set new text
-            current_text = self.search_entry.get_text()
-            self.search_entry.set_text(current_text + char)
-            # Move cursor to end
-            self.search_entry.set_position(-1)
-            return True  # Event handled
         
         return False  # Let other handlers process
     

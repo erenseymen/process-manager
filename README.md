@@ -164,14 +164,13 @@ Settings are stored in `~/.config/process-manager/settings.json` and include:
 | `Delete` | End selected processes (SIGTERM) |
 | `Shift+Delete` | Force kill selected processes (SIGKILL) |
 | `Space` | Toggle auto-refresh (Play/Pause) |
-| `Backspace` | Open search and clear search term |
 | `Escape` | Close search |
 | `Enter` | Select all filtered processes (in search mode) |
 | `Ctrl+Tab` | Switch between Processes and GPU tabs |
 | `F5` | Refresh process list |
 | `Ctrl+Q` | Quit application |
 | `Ctrl+,` | Open preferences |
-| `Ctrl+F` | Toggle filter |
+| `Ctrl+F` | Toggle filter/search bar |
 
 ## Publishing to Flathub
 
