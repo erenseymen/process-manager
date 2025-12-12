@@ -101,6 +101,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Create the application menu."""
         menu = Gio.Menu()
         
+        menu.append("Preferences", "app.preferences")
         menu.append("About Process Manager", "app.about")
         menu.append("Quit", "app.quit")
         
