@@ -113,96 +113,97 @@ class GPUStats:
         # #region agent log
         _debug_log('gpu_stats.py:_detect_gpus', 'Checking for Intel GPU', {}, 'H1')
         # #endregion
+        
+        # First, check /sys/class/drm for Intel vendor ID (most reliable method)
+        import os
+        intel_detected = False
         try:
-            # Try direct call first
             # #region agent log
-            _debug_log('gpu_stats.py:_detect_gpus', 'Trying direct intel_gpu_top call', {}, 'H2')
+            _debug_log('gpu_stats.py:_detect_gpus', 'Checking /sys/class/drm for Intel vendor', {}, 'H1')
             # #endregion
-            result = subprocess.run(
-                ['intel_gpu_top', '-l'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            # #region agent log
-            _debug_log('gpu_stats.py:_detect_gpus', 'Direct intel_gpu_top result', {'returncode': result.returncode, 'stdout_length': len(result.stdout), 'stderr_length': len(result.stderr)}, 'H2')
-            # #endregion
-            if result.returncode == 0:
-                self.gpu_types.append('intel')
-                # #region agent log
-                _debug_log('gpu_stats.py:_detect_gpus', 'Intel GPU detected via direct call', {}, 'H2')
-                # #endregion
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-            # #region agent log
-            _debug_log('gpu_stats.py:_detect_gpus', 'Direct intel_gpu_top failed', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H2')
-            # #endregion
-            # Try via flatpak-spawn
-            try:
-                # #region agent log
-                _debug_log('gpu_stats.py:_detect_gpus', 'Trying intel_gpu_top via flatpak-spawn', {}, 'H2')
-                # #endregion
-                result = run_host_command(['intel_gpu_top', '-l'])
-                # #region agent log
-                _debug_log('gpu_stats.py:_detect_gpus', 'flatpak-spawn intel_gpu_top result', {'result_length': len(result) if result else 0, 'result_preview': result[:100] if result else None}, 'H2')
-                # #endregion
-                # Check if command succeeded (result is not empty or error)
-                if result:  # If command exists and returns output, verify via vendor ID
-                    # Verify by checking /sys/class/drm
-                    import os
-                    # #region agent log
-                    _debug_log('gpu_stats.py:_detect_gpus', 'Checking /sys/class/drm for Intel vendor', {}, 'H1')
-                    # #endregion
-                    vendor_found = False
-                    if any(os.path.exists(f'/sys/class/drm/card{i}/device/vendor') 
-                           for i in range(10)):
-                        # Check if it's Intel (vendor ID 0x8086)
-                        for i in range(10):
-                            vendor_path = f'/sys/class/drm/card{i}/device/vendor'
-                            if os.path.exists(vendor_path):
-                                try:
-                                    with open(vendor_path, 'r') as f:
-                                        vendor_id = f.read().strip()
-                                        # #region agent log
-                                        _debug_log('gpu_stats.py:_detect_gpus', 'Found vendor ID', {'card': i, 'vendor_id': vendor_id}, 'H1')
-                                        # #endregion
-                                        if vendor_id == '0x8086':
-                                            self.gpu_types.append('intel')
-                                            vendor_found = True
-                                            # #region agent log
-                                            _debug_log('gpu_stats.py:_detect_gpus', 'Intel GPU detected via vendor ID', {}, 'H1')
-                                            # #endregion
-                                            break
-                                except (OSError, IOError) as e:
-                                    # #region agent log
-                                    _debug_log('gpu_stats.py:_detect_gpus', 'Error reading vendor file', {'path': vendor_path, 'error': str(e)}, 'H1')
-                                    # #endregion
-                                    pass
-                    if not vendor_found:
+            for i in range(10):
+                vendor_path = f'/sys/class/drm/card{i}/device/vendor'
+                if os.path.exists(vendor_path):
+                    try:
+                        with open(vendor_path, 'r') as f:
+                            vendor_id = f.read().strip()
+                            # #region agent log
+                            _debug_log('gpu_stats.py:_detect_gpus', 'Found vendor ID', {'card': i, 'vendor_id': vendor_id}, 'H1')
+                            # #endregion
+                            if vendor_id == '0x8086':
+                                self.gpu_types.append('intel')
+                                intel_detected = True
+                                # #region agent log
+                                _debug_log('gpu_stats.py:_detect_gpus', 'Intel GPU detected via vendor ID', {}, 'H1')
+                                # #endregion
+                                break
+                    except (OSError, IOError) as e:
                         # #region agent log
-                        _debug_log('gpu_stats.py:_detect_gpus', 'No Intel vendor found in /sys/class/drm', {}, 'H1')
+                        _debug_log('gpu_stats.py:_detect_gpus', 'Error reading vendor file', {'path': vendor_path, 'error': str(e)}, 'H1')
                         # #endregion
-            except Exception as e:
+                        pass
+        except Exception as e:
+            # #region agent log
+            _debug_log('gpu_stats.py:_detect_gpus', 'Error checking /sys/class/drm', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H1')
+            # #endregion
+            pass
+        
+        # If not detected via vendor ID, try intel_gpu_top command
+        if not intel_detected:
+            try:
+                # Try direct call first
                 # #region agent log
-                _debug_log('gpu_stats.py:_detect_gpus', 'flatpak-spawn intel_gpu_top exception', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H2')
+                _debug_log('gpu_stats.py:_detect_gpus', 'Trying direct intel_gpu_top call', {}, 'H2')
                 # #endregion
-                # Also check /sys/class/drm for Intel GPU (fallback)
+                result = subprocess.run(
+                    ['intel_gpu_top', '-l'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                # #region agent log
+                _debug_log('gpu_stats.py:_detect_gpus', 'Direct intel_gpu_top result', {'returncode': result.returncode, 'stdout_length': len(result.stdout), 'stderr_length': len(result.stderr)}, 'H2')
+                # #endregion
+                if result.returncode == 0:
+                    self.gpu_types.append('intel')
+                    intel_detected = True
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_detect_gpus', 'Intel GPU detected via direct call', {}, 'H2')
+                    # #endregion
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+                # #region agent log
+                _debug_log('gpu_stats.py:_detect_gpus', 'Direct intel_gpu_top failed', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H2')
+                # #endregion
+                # Try via flatpak-spawn
                 try:
-                    import os
-                    if any(os.path.exists(f'/sys/class/drm/card{i}/device/vendor') 
-                           for i in range(10)):
-                        # Check if it's Intel (vendor ID 0x8086)
-                        for i in range(10):
-                            vendor_path = f'/sys/class/drm/card{i}/device/vendor'
-                            if os.path.exists(vendor_path):
-                                try:
-                                    with open(vendor_path, 'r') as f:
-                                        vendor_id = f.read().strip()
-                                        if vendor_id == '0x8086':
-                                            self.gpu_types.append('intel')
-                                            break
-                                except (OSError, IOError):
-                                    pass
-                except Exception:
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_detect_gpus', 'Trying intel_gpu_top via flatpak-spawn', {}, 'H2')
+                    # #endregion
+                    result = run_host_command(['intel_gpu_top', '-l'])
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_detect_gpus', 'flatpak-spawn intel_gpu_top result', {'result_length': len(result) if result else 0, 'result_preview': result[:100] if result else None}, 'H2')
+                    # #endregion
+                    # If command exists (even if empty output), it means intel_gpu_top is available
+                    # This suggests Intel GPU might be present
+                    if result is not None:  # Command executed (even if empty)
+                        # Double-check via vendor ID if we haven't already
+                        if not intel_detected:
+                            for i in range(10):
+                                vendor_path = f'/sys/class/drm/card{i}/device/vendor'
+                                if os.path.exists(vendor_path):
+                                    try:
+                                        with open(vendor_path, 'r') as f:
+                                            vendor_id = f.read().strip()
+                                            if vendor_id == '0x8086':
+                                                self.gpu_types.append('intel')
+                                                intel_detected = True
+                                                break
+                                    except (OSError, IOError):
+                                        pass
+                except Exception as e:
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_detect_gpus', 'flatpak-spawn intel_gpu_top exception', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H2')
+                    # #endregion
                     pass
         
         # Check for AMD GPU
