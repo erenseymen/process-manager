@@ -608,6 +608,29 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         return panel_box
     
+    def parse_cpu_str(self, cpu_str):
+        """Parse CPU string like '5.2%' to float."""
+        try:
+            return float(cpu_str.rstrip('%'))
+        except (ValueError, AttributeError):
+            return 0.0
+    
+    def parse_mem_str(self, mem_str):
+        """Parse memory string like '150.5 MiB' to bytes."""
+        try:
+            mem_str = mem_str.strip()
+            if mem_str.endswith('GiB'):
+                return float(mem_str[:-3].strip()) * 1024 * 1024 * 1024
+            elif mem_str.endswith('MiB'):
+                return float(mem_str[:-3].strip()) * 1024 * 1024
+            elif mem_str.endswith('KiB'):
+                return float(mem_str[:-3].strip()) * 1024
+            elif mem_str.endswith('B'):
+                return float(mem_str[:-1].strip())
+            return 0
+        except (ValueError, AttributeError):
+            return 0
+    
     def update_selection_panel(self):
         """Update the selection panel with current selection grouped by process name."""
         count = len(self.selected_pids)
@@ -618,8 +641,16 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if count == 0:
             return
         
-        # Update title
-        self.selection_title.set_label(f"Selected ({count}):")
+        # Calculate totals
+        total_cpu = sum(self.parse_cpu_str(info.get('cpu_str', '0%')) 
+                       for info in self.selected_pids.values())
+        total_mem = sum(self.parse_mem_str(info.get('mem_str', '0 B')) 
+                       for info in self.selected_pids.values())
+        
+        # Update title with totals
+        self.selection_title.set_label(
+            f"Selected ({count}): CPU {total_cpu:.1f}% | Mem {self.format_memory(total_mem)}"
+        )
         
         # Clear existing chips
         while True:
@@ -633,30 +664,40 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         for pid, info in self.selected_pids.items():
             name = info.get('name', 'Unknown')
             if name not in groups:
-                groups[name] = []
-            groups[name].append(pid)
+                groups[name] = {'pids': [], 'cpu': 0.0, 'mem': 0}
+            groups[name]['pids'].append(pid)
+            groups[name]['cpu'] += self.parse_cpu_str(info.get('cpu_str', '0%'))
+            groups[name]['mem'] += self.parse_mem_str(info.get('mem_str', '0 B'))
         
         # Create chips for each group
         for name in sorted(groups.keys()):
-            pids = sorted(groups[name])
-            chip = self.create_selection_chip(name, pids)
+            group_info = groups[name]
+            pids = sorted(group_info['pids'])
+            chip = self.create_selection_chip(name, pids, group_info['cpu'], group_info['mem'])
             self.selection_flow.append(chip)
     
-    def create_selection_chip(self, name, pids):
+    def create_selection_chip(self, name, pids, total_cpu, total_mem):
         """Create a chip widget for a selected process group."""
-        chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         chip_box.add_css_class("selection-chip")
         
         # Process name and count
         if len(pids) == 1:
-            label_text = f"{name}"
+            name_text = f"{name}"
         else:
-            label_text = f"{name} ({len(pids)})"
+            name_text = f"{name} ({len(pids)})"
         
-        label = Gtk.Label(label=label_text)
-        label.set_ellipsize(Pango.EllipsizeMode.END)
-        label.set_max_width_chars(25)
-        chip_box.append(label)
+        name_label = Gtk.Label(label=name_text)
+        name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        name_label.set_max_width_chars(20)
+        name_label.add_css_class("chip-name")
+        chip_box.append(name_label)
+        
+        # Stats (CPU and Memory)
+        stats_text = f"{total_cpu:.1f}% · {self.format_memory(total_mem)}"
+        stats_label = Gtk.Label(label=stats_text)
+        stats_label.add_css_class("chip-stats")
+        chip_box.append(stats_label)
         
         # Remove button
         remove_btn = Gtk.Button()
@@ -830,10 +871,17 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             iter = model.get_iter(path)
             pid = model.get_value(iter, 6)  # PID column
             name = model.get_value(iter, 0)
+            cpu_str = model.get_value(iter, 1)  # e.g., "5.2%"
+            mem_str = model.get_value(iter, 2)  # e.g., "150.5 MiB"
             user = model.get_value(iter, 4)
             visible_selected.add(pid)
             # Store process info for selected PIDs
-            self.selected_pids[pid] = {'name': name, 'user': user}
+            self.selected_pids[pid] = {
+                'name': name,
+                'user': user,
+                'cpu_str': cpu_str,
+                'mem_str': mem_str
+            }
         
         # Get all visible PIDs
         visible_pids = set()
@@ -874,10 +922,17 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         all_pids = {p['pid'] for p in all_processes}
         all_process_map = {p['pid']: p for p in all_processes}
         
-        # Clean up ended processes from selection
+        # Clean up ended processes from selection and update info for existing ones
         pids_to_remove = [pid for pid in self.selected_pids if pid not in all_pids]
         for pid in pids_to_remove:
             del self.selected_pids[pid]
+        
+        # Update cpu/memory info for selected processes
+        for pid in self.selected_pids:
+            if pid in all_process_map:
+                proc = all_process_map[pid]
+                self.selected_pids[pid]['cpu_str'] = f"{proc['cpu']:.1f}%"
+                self.selected_pids[pid]['mem_str'] = self.format_memory(proc['memory'])
         
         # Get filtered processes
         processes = self.process_manager.get_processes(

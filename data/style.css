@@ -26,19 +26,25 @@
   background-color: @accent_bg_color;
   color: @accent_fg_color;
   border-radius: 16px;
-  padding: 4px 8px 4px 12px;
+  padding: 4px 6px 4px 12px;
   margin: 2px;
 }
 
-.selection-chip label {
+.selection-chip .chip-name {
   font-size: 0.85em;
+  font-weight: 600;
+}
+
+.selection-chip .chip-stats {
+  font-size: 0.8em;
+  opacity: 0.85;
 }
 
 .selection-chip .chip-remove {
   min-width: 20px;
   min-height: 20px;
   padding: 0;
-  margin-left: 4px;
+  margin-left: 2px;
 }
 
 .selection-chip .chip-remove:hover {
