@@ -553,52 +553,46 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def create_selection_panel(self):
         """Create the selection panel showing selected processes grouped by name."""
-        # Main container - horizontal layout above process list
+        # Main container
         panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         panel_box.add_css_class("selection-panel")
         
-        # Content box with horizontal scroll
-        content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        content_box.set_margin_start(12)
-        content_box.set_margin_end(8)
-        content_box.set_margin_top(6)
-        content_box.set_margin_bottom(6)
+        # Header row with title and clear button
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_margin_start(12)
+        header_box.set_margin_end(8)
+        header_box.set_margin_top(6)
+        header_box.set_margin_bottom(4)
         
         # Title label
         self.selection_title = Gtk.Label(label="Selected:")
         self.selection_title.add_css_class("heading")
-        self.selection_title.set_valign(Gtk.Align.CENTER)
-        content_box.append(self.selection_title)
-        
-        # Scrolled window for chips (horizontal)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_hexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
-        scrolled.set_min_content_height(36)
-        
-        # FlowBox for selection chips
-        self.selection_flow = Gtk.FlowBox()
-        self.selection_flow.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.selection_flow.set_homogeneous(False)
-        self.selection_flow.set_max_children_per_line(100)
-        self.selection_flow.set_min_children_per_line(1)
-        self.selection_flow.set_row_spacing(4)
-        self.selection_flow.set_column_spacing(6)
-        self.selection_flow.set_valign(Gtk.Align.CENTER)
-        scrolled.set_child(self.selection_flow)
-        
-        content_box.append(scrolled)
+        self.selection_title.set_halign(Gtk.Align.START)
+        self.selection_title.set_hexpand(True)
+        header_box.append(self.selection_title)
         
         # Clear all button
         self.clear_button = Gtk.Button()
         self.clear_button.set_icon_name("edit-clear-all-symbolic")
         self.clear_button.set_tooltip_text("Clear Selection")
         self.clear_button.add_css_class("flat")
-        self.clear_button.set_valign(Gtk.Align.CENTER)
         self.clear_button.connect("clicked", self.on_clear_selection)
-        content_box.append(self.clear_button)
+        header_box.append(self.clear_button)
         
-        panel_box.append(content_box)
+        panel_box.append(header_box)
+        
+        # FlowBox for selection chips (wraps to multiple lines)
+        self.selection_flow = Gtk.FlowBox()
+        self.selection_flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.selection_flow.set_homogeneous(False)
+        self.selection_flow.set_max_children_per_line(50)
+        self.selection_flow.set_min_children_per_line(1)
+        self.selection_flow.set_row_spacing(4)
+        self.selection_flow.set_column_spacing(6)
+        self.selection_flow.set_margin_start(12)
+        self.selection_flow.set_margin_end(12)
+        self.selection_flow.set_margin_bottom(8)
+        panel_box.append(self.selection_flow)
         
         # Bottom separator
         sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
