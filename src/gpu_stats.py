@@ -450,38 +450,57 @@ class GPUStats:
         # doesn't provide per-process information or fails
         try:
             # Find processes with DRM (Intel GPU) file descriptors
-            for proc_dir in glob.glob('/proc/[0-9]*'):
-                try:
-                    pid = int(os.path.basename(proc_dir))
-                    fd_dir = os.path.join(proc_dir, 'fd')
-                    if not os.path.isdir(fd_dir):
-                        continue
-                    
-                    # Check if process has any DRM file descriptors
-                    has_drm_fd = False
-                    for fd in os.listdir(fd_dir):
-                        fd_path = os.path.join(fd_dir, fd)
+            # Use a Python script via run_host_command to access /proc from host (works in Flatpak)
+            drm_pids = set()
+            
+            # Use a shell command to find PIDs with DRM file descriptors
+            # This works from Flatpak sandbox by executing on host
+            try:
+                # Create a one-liner Python script to find DRM processes
+                script = """
+import os, glob
+for proc_dir in glob.glob('/proc/[0-9]*'):
+    try:
+        pid = int(os.path.basename(proc_dir))
+        fd_dir = os.path.join(proc_dir, 'fd')
+        if not os.path.isdir(fd_dir):
+            continue
+        for fd in os.listdir(fd_dir):
+            fd_path = os.path.join(fd_dir, fd)
+            try:
+                target = os.readlink(fd_path)
+                if '/dev/dri/' in target:
+                    print(pid)
+                    break
+            except:
+                continue
+    except:
+        continue
+"""
+                # Execute via Python on host
+                cmd = ['python3', '-c', script]
+                output = run_host_command(cmd)
+                
+                # Parse output to get PIDs
+                for line in output.strip().split('\n'):
+                    if line.strip():
                         try:
-                            target = os.readlink(fd_path)
-                            # Intel GPU devices are typically /dev/dri/card* or /dev/dri/renderD*
-                            if '/dev/dri/' in target:
-                                has_drm_fd = True
-                                break
-                        except (OSError, ValueError):
+                            pid = int(line.strip())
+                            drm_pids.add(pid)
+                        except ValueError:
                             continue
-                    
-                    # If process has DRM file descriptors, include it
-                    # If it already exists from intel_gpu_top output, keep the usage data
-                    # Otherwise add it with 0% usage (will be updated on next call if available)
-                    if has_drm_fd and pid not in processes:
-                        processes[pid] = {
-                            'gpu_usage': 0.0,
-                            'gpu_memory': 0,
-                            'encoding': 0.0,
-                            'decoding': 0.0
-                        }
-                except (ValueError, OSError, PermissionError):
-                    continue
+            except Exception:
+                pass
+            
+            # Add found PIDs to processes dict
+            for pid in drm_pids:
+                if pid not in processes:
+                    processes[pid] = {
+                        'gpu_usage': 0.0,
+                        'gpu_memory': 0,
+                        'encoding': 0.0,
+                        'decoding': 0.0
+                    }
         except Exception:
             pass
         
