@@ -302,8 +302,11 @@ class TerminationDialog(Adw.Window):
         self.stop_status_check()
         self.close()
         
-        # Refresh parent window's process list
+        # Remove terminated processes from parent's persistent selection
         if self.parent_window:
+            for pid, info in self.processes.items():
+                if info['status'] == 'terminated' and pid in self.parent_window.selected_pids:
+                    del self.parent_window.selected_pids[pid]
             GLib.timeout_add(100, self.parent_window.refresh_processes)
 
 
@@ -317,6 +320,11 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.settings = app.settings
         self.process_manager = ProcessManager()
         self.system_stats = SystemStats()
+        
+        # Persistent selection tracking
+        # Key: PID, Value: dict with process info (name, user, etc.)
+        self.selected_pids = {}
+        self._updating_selection = False  # Flag to prevent recursive selection updates
         
         # Window setup
         self.set_title("Process Manager")
@@ -462,6 +470,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Selection
         selection = tree_view.get_selection()
         selection.set_mode(Gtk.SelectionMode.MULTIPLE)
+        selection.connect("changed", self.on_selection_changed)
         
         # Right-click context menu
         gesture = Gtk.GestureClick(button=3)
@@ -645,17 +654,40 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     mem_percent = 0
     swap_percent = 0
     
-    def refresh_processes(self):
-        """Refresh the process list."""
-        # Save selected PIDs before clearing
-        selection = self.tree_view.get_selection()
+    def on_selection_changed(self, selection):
+        """Handle selection changes - sync with persistent selected_pids."""
+        if self._updating_selection:
+            return
+        
         model, paths = selection.get_selected_rows()
-        selected_pids = set()
+        
+        # Get currently visible selected PIDs
+        visible_selected = set()
         for path in paths:
             iter = model.get_iter(path)
             pid = model.get_value(iter, 6)  # PID column
-            selected_pids.add(pid)
+            name = model.get_value(iter, 0)
+            user = model.get_value(iter, 4)
+            visible_selected.add(pid)
+            # Store process info for selected PIDs
+            self.selected_pids[pid] = {'name': name, 'user': user}
         
+        # Get all visible PIDs
+        visible_pids = set()
+        for row in self.list_store:
+            visible_pids.add(row[6])
+        
+        # Remove deselected PIDs (only those that are visible and not selected)
+        pids_to_remove = []
+        for pid in self.selected_pids:
+            if pid in visible_pids and pid not in visible_selected:
+                pids_to_remove.append(pid)
+        
+        for pid in pids_to_remove:
+            del self.selected_pids[pid]
+    
+    def refresh_processes(self):
+        """Refresh the process list."""
         # Get filter settings from All/User toggle
         show_all = self.all_user_button.get_active()
         my_processes = not show_all
@@ -666,7 +698,22 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Get search text
         search_text = self.search_entry.get_text().lower()
         
-        # Get processes
+        # Get all processes (to check if selected ones still exist)
+        all_processes = self.process_manager.get_processes(
+            show_all=True,
+            my_processes=False,
+            active_only=False,
+            show_kernel_threads=True
+        )
+        all_pids = {p['pid'] for p in all_processes}
+        all_process_map = {p['pid']: p for p in all_processes}
+        
+        # Clean up ended processes from selection
+        pids_to_remove = [pid for pid in self.selected_pids if pid not in all_pids]
+        for pid in pids_to_remove:
+            del self.selected_pids[pid]
+        
+        # Get filtered processes
         processes = self.process_manager.get_processes(
             show_all=show_all,
             my_processes=my_processes,
@@ -676,13 +723,25 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Filter by search
         if search_text:
-            processes = [p for p in processes if search_text in p['name'].lower() or 
+            filtered_processes = [p for p in processes if search_text in p['name'].lower() or 
                         search_text in str(p['pid']) or
                         search_text in p['user'].lower()]
+        else:
+            filtered_processes = processes
+        
+        # Get PIDs of filtered processes
+        filtered_pids = {p['pid'] for p in filtered_processes}
+        
+        # Add selected processes that don't match the filter but still exist
+        for pid in self.selected_pids:
+            if pid not in filtered_pids and pid in all_pids:
+                # Add selected process to the list
+                filtered_processes.append(all_process_map[pid])
         
         # Update list store
+        self._updating_selection = True
         self.list_store.clear()
-        for proc in processes:
+        for proc in filtered_processes:
             self.list_store.append([
                 proc['name'],
                 f"{proc['cpu']:.1f}%",
@@ -693,11 +752,14 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 proc['pid']
             ])
         
-        # Restore selection by PID
-        if selected_pids:
+        # Restore selection by PID from persistent selection
+        selection = self.tree_view.get_selection()
+        if self.selected_pids:
             for i, row in enumerate(self.list_store):
-                if row[6] in selected_pids:  # PID column
+                if row[6] in self.selected_pids:  # PID column
                     selection.select_path(Gtk.TreePath.new_from_indices([i]))
+        
+        self._updating_selection = False
     
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""
@@ -755,7 +817,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def select_first_item(self):
         """Select the first item in the process list."""
-        if len(self.list_store) > 0:
+        if len(self.list_store) > 0 and not self.selected_pids:
             selection = self.tree_view.get_selection()
             selection.select_path(Gtk.TreePath.new_first())
         return False  # Don't repeat
@@ -814,6 +876,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         for pid in pids:
             try:
                 self.process_manager.kill_process(pid)
+                # Remove from persistent selection
+                if pid in self.selected_pids:
+                    del self.selected_pids[pid]
             except Exception as e:
                 self.show_error(f"Failed to kill process {pid}: {e}")
         
