@@ -11,6 +11,21 @@
   font-size: 0.9em;
 }
 
+/* Selection panel */
+.selection-panel {
+  background-color: @view_bg_color;
+  border-left: 1px solid @borders;
+}
+
+.selection-panel-header {
+  background-color: alpha(@headerbar_bg_color, 0.3);
+}
+
+.selection-panel-header .heading {
+  font-weight: bold;
+  font-size: 1em;
+}
+
 .toolbar {
   background-color: alpha(@headerbar_bg_color, 0.5);
   border-bottom: 1px solid @borders;
