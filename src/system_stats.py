@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -165,4 +166,29 @@ class SystemStats:
                 }
         except (OSError, IOError, ValueError, IndexError):
             return {'1min': 0.0, '5min': 0.0, '15min': 0.0}
+    
+    def get_disk_info(self, path: str = '/') -> Dict[str, int]:
+        """Get disk usage information.
+        
+        Args:
+            path: Path to check disk usage for (default: root filesystem).
+        
+        Returns:
+            Dictionary with disk statistics in bytes.
+        """
+        default_result = {
+            'disk_total': 0,
+            'disk_used': 0,
+            'disk_free': 0
+        }
+        
+        try:
+            usage = shutil.disk_usage(path)
+            return {
+                'disk_total': usage.total,
+                'disk_used': usage.used,
+                'disk_free': usage.free
+            }
+        except (OSError, IOError):
+            return default_result
 

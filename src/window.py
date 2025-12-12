@@ -1173,6 +1173,33 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         swap_box.append(swap_label_box)
         stats_box.append(swap_box)
         
+        # Separator
+        sep2 = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        stats_box.append(sep2)
+        
+        # Disk section
+        disk_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        
+        self.disk_indicator = Gtk.DrawingArea()
+        self.disk_indicator.set_size_request(24, 24)
+        self.disk_indicator.set_draw_func(self.draw_disk_indicator)
+        disk_box.append(self.disk_indicator)
+        
+        disk_label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        
+        self.disk_title = Gtk.Label(label="Disk")
+        self.disk_title.add_css_class("heading")
+        self.disk_title.set_halign(Gtk.Align.START)
+        disk_label_box.append(self.disk_title)
+        
+        self.disk_details = Gtk.Label(label="0 B (0%) of 0 B")
+        self.disk_details.add_css_class("dim-label")
+        self.disk_details.set_halign(Gtk.Align.START)
+        disk_label_box.append(self.disk_details)
+        
+        disk_box.append(disk_label_box)
+        stats_box.append(disk_box)
+        
         # Spacer
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
@@ -1187,6 +1214,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def draw_swap_indicator(self, area, cr, width, height):
         """Draw circular swap usage indicator."""
         self.draw_circular_indicator(cr, width, height, self.swap_percent, (0.2, 0.8, 0.2))
+    
+    def draw_disk_indicator(self, area, cr, width, height):
+        """Draw circular disk usage indicator."""
+        self.draw_circular_indicator(cr, width, height, self.disk_percent, (0.2, 0.2, 0.8))
     
     def draw_circular_indicator(self, cr, width, height, percent, color):
         """Draw a circular progress indicator."""
@@ -1214,6 +1245,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     # Initialize percent values
     mem_percent = 0
     swap_percent = 0
+    disk_percent = 0
     
     def on_selection_changed(self, selection):
         """Handle selection changes - sync with persistent selected_pids."""
@@ -1360,7 +1392,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         return f"{bytes_val} B"
     
     def update_system_stats(self):
-        """Update system memory and swap stats."""
+        """Update system memory, swap, and disk stats."""
         stats = self.system_stats.get_memory_info()
         
         # Memory
@@ -1384,6 +1416,17 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             f"{self.format_memory(swap_used)} ({self.swap_percent:.1f}%) of {self.format_memory(swap_total)}"
         )
         self.swap_indicator.queue_draw()
+        
+        # Disk
+        disk_stats = self.system_stats.get_disk_info()
+        disk_used = disk_stats['disk_used']
+        disk_total = disk_stats['disk_total']
+        self.disk_percent = (disk_used / disk_total * 100) if disk_total > 0 else 0
+        
+        self.disk_details.set_text(
+            f"{self.format_memory(disk_used)} ({self.disk_percent:.1f}%) of {self.format_memory(disk_total)}"
+        )
+        self.disk_indicator.queue_draw()
     
     def start_refresh_timer(self):
         """Start the auto-refresh timer."""
