@@ -474,6 +474,18 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 GLib.source_remove(self.refresh_timeout_id)
                 self.refresh_timeout_id = None
     
+    # Map column names to column IDs for sort persistence
+    COLUMN_NAME_TO_ID = {
+        "name": 0,
+        "cpu": 1,
+        "memory": 2,
+        "started": 3,
+        "user": 4,
+        "nice": 5,
+        "pid": 6,
+    }
+    COLUMN_ID_TO_NAME = {v: k for k, v in COLUMN_NAME_TO_ID.items()}
+    
     def create_process_view(self):
         """Create the process list view."""
         # Create list store: name, cpu, memory, started, user, nice, pid
@@ -525,11 +537,26 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.list_store.set_sort_func(5, self.sort_numeric, None)  # Nice
         self.list_store.set_sort_func(6, self.sort_numeric, None)  # PID
         
-        # Default sort by CPU descending
-        self.list_store.set_sort_column_id(1, Gtk.SortType.DESCENDING)
+        # Restore saved sort column and order
+        saved_column = self.settings.get("sort_column")
+        saved_descending = self.settings.get("sort_descending")
+        sort_col_id = self.COLUMN_NAME_TO_ID.get(saved_column, 1)  # Default to CPU
+        sort_order = Gtk.SortType.DESCENDING if saved_descending else Gtk.SortType.ASCENDING
+        self.list_store.set_sort_column_id(sort_col_id, sort_order)
+        
+        # Connect to sort changes to save them
+        self.list_store.connect("sort-column-changed", self.on_sort_column_changed)
         
         self.tree_view = tree_view
         return tree_view
+    
+    def on_sort_column_changed(self, model):
+        """Handle sort column change - save to settings."""
+        sort_col_id, sort_order = model.get_sort_column_id()
+        if sort_col_id is not None and sort_col_id >= 0:
+            col_name = self.COLUMN_ID_TO_NAME.get(sort_col_id, "cpu")
+            self.settings.set("sort_column", col_name)
+            self.settings.set("sort_descending", sort_order == Gtk.SortType.DESCENDING)
     
     def sort_percent(self, model, iter1, iter2, user_data):
         """Sort by percentage value."""
