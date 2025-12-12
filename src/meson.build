@@ -27,6 +27,7 @@ process_manager_sources = [
   'process_manager.py',
   'ps_commands.py',
   'system_stats.py',
+  'gpu_stats.py',
   'settings.py',
   'preferences.py',
 ]
