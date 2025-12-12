@@ -344,9 +344,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.refresh_processes()
         self.update_system_stats()
         
-        # Select first item after processes are loaded
-        GLib.idle_add(self.select_first_item)
-        
         # Connect window close to cleanup
         self.connect("close-request", self.on_close_request)
     
