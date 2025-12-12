@@ -388,10 +388,11 @@ class GPUStats:
         # Use run_host_command to support Flatpak and handle permissions properly
         # Try intel_gpu_top JSON output first (if available)
         try:
-            # Use timeout command to limit execution, sudo for permissions
+            # Use timeout command to limit execution
             # -J for JSON, -o - for stdout
-            cmd_json = ['timeout', '2', 'sudo', 'intel_gpu_top', '-J', '-o', '-']
-            output_json = run_host_command(cmd_json, timeout=5)
+            # intel_gpu_top requires root access for per-process stats
+            cmd_json = ['sudo', 'timeout', '1', 'intel_gpu_top', '-J', '-o', '-']
+            output_json = run_host_command(cmd_json, timeout=3)
             
             if output_json and output_json.strip():
                 data = self._parse_intel_gpu_top_json(output_json)
@@ -456,8 +457,8 @@ class GPUStats:
         # If JSON format didn't work, try CSV format as fallback
         if not processes:
             try:
-                cmd_csv = ['intel_gpu_top', '-c', '-l', '1', '-s', '500']
-                output_csv = run_host_command(cmd_csv)
+                cmd_csv = ['sudo', 'timeout', '1', 'intel_gpu_top', '-c', '-o', '-']
+                output_csv = run_host_command(cmd_csv, timeout=3)
                 
                 if output_csv and output_csv.strip():
                     # Parse CSV format - typically has headers and process rows
@@ -702,9 +703,11 @@ for proc_dir in glob.glob('/proc/[0-9]*'):
         stats = {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
         
         try:
-            # Use timeout command to limit execution, sudo for permissions
-            cmd = ['timeout', '2', 'sudo', 'intel_gpu_top', '-J', '-o', '-']
-            output = run_host_command(cmd, timeout=5)
+            # Use timeout command to limit execution
+            # -J for JSON, -o - for stdout
+            # intel_gpu_top requires root access for accurate stats
+            cmd = ['sudo', 'timeout', '1', 'intel_gpu_top', '-J', '-o', '-']
+            output = run_host_command(cmd, timeout=3)
             
             if output and output.strip():
                 data = self._parse_intel_gpu_top_json(output)
