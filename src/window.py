@@ -2363,6 +2363,22 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if self.search_bar.get_search_mode() and self.search_entry.has_focus():
             return False
         
+        # Get the character from keyval
+        char = chr(keyval) if 32 <= keyval <= 126 else None
+        
+        # Check if it's a printable character (letter, number, etc.)
+        if char and char.isprintable():
+            # Open search bar
+            self.search_bar.set_search_mode(True)
+            # Focus search entry
+            self.search_entry.grab_focus()
+            # Append to existing text or set new text
+            current_text = self.search_entry.get_text()
+            self.search_entry.set_text(current_text + char)
+            # Move cursor to end
+            self.search_entry.set_position(-1)
+            return True  # Event handled
+        
         return False  # Let other handlers process
     
     def terminate_selected_processes(self):
