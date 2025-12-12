@@ -2281,6 +2281,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
         
+        # Handle Ctrl+TAB for tab switching
+        if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
+            current_name = self.view_stack.get_visible_child_name()
+            if current_name == "processes":
+                self.view_stack.set_visible_child_name("gpu")
+            else:
+                self.view_stack.set_visible_child_name("processes")
+            return True  # Event handled, don't let TreeView process it
+        
         # Handle Space - toggle Play/Pause auto refresh
         if keyval == Gdk.KEY_space and not has_ctrl and not has_alt and not has_shift:
             self.auto_refresh_button.set_active(not self.auto_refresh_button.get_active())
