@@ -14,3 +14,18 @@ At the end of each response, if changes were made to files, commit these changes
 2. Use conventional commits format (feat:, fix:, docs:, refactor:, chore:, etc.)
 3. Only commit when actual changes were made, do not commit when only reading or analysis was performed
 4. Update `README.md` accordingly
+
+# AI Context Rule
+
+Save important context about the codebase for future AI sessions.
+
+## Rules
+
+1. When significant architectural decisions, patterns, or conventions are established, save them using the memory tool
+2. Save context about:
+   - Project architecture and design patterns
+   - Key dependencies and their purposes
+   - Important conventions or coding standards used
+   - Complex logic that requires explanation
+   - Known issues or limitations
+3. Keep memories concise and actionable
