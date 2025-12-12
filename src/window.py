@@ -627,35 +627,16 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def on_tab_changed(self, stack, param):
         """Handle tab change."""
         visible_child = stack.get_visible_child_name()
-        # #region agent log
-        _dbg_log("window.py:on_tab_changed", "Tab changed", {"visible_child": visible_child}, hyp="D")
-        _tab_start = _dbg_time.time()
-        # #endregion
         if visible_child == "gpu":
             self.current_tab = 'gpu'
             # Start GPU monitoring
-            # #region agent log
-            _dbg_log("window.py:refresh_gpu_start", "Starting refresh_gpu_processes", hyp="D,E")
-            _gpu_start = _dbg_time.time()
-            # #endregion
             self.refresh_gpu_processes()
-            # #region agent log
-            _dbg_log("window.py:refresh_gpu_end", "refresh_gpu_processes done", {"duration": _dbg_time.time() - _gpu_start}, hyp="D,E")
-            _dbg_log("window.py:update_stats_start", "Starting update_system_stats", hyp="D,E")
-            _stats_start = _dbg_time.time()
-            # #endregion
             self.update_system_stats()  # Update stats to show GPU section
-            # #region agent log
-            _dbg_log("window.py:update_stats_end", "update_system_stats done", {"duration": _dbg_time.time() - _stats_start}, hyp="D,E")
-            # #endregion
         else:
             self.current_tab = 'processes'
             # Refresh regular processes
             self.refresh_processes()
             self.update_system_stats()  # Update stats to hide GPU section
-        # #region agent log
-        _dbg_log("window.py:on_tab_changed_exit", "Tab change complete", {"total_duration": _dbg_time.time() - _tab_start}, hyp="D")
-        # #endregion
     
     def on_all_user_toggled(self, button):
         """Handle All/User toggle button."""
