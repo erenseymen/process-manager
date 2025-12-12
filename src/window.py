@@ -1640,6 +1640,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if self.current_tab != 'gpu':
             return
         
+        # Get search text
+        search_text = self.search_entry.get_text().lower()
+        
         # Get all processes
         all_processes = self.process_manager.get_processes(
             show_all=True,
@@ -1685,6 +1688,13 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                     })
                 except Exception:
                     pass
+        
+        # Filter by search text
+        if search_text:
+            combined_processes = [
+                p for p in combined_processes
+                if search_text in p['name'].lower() or search_text in str(p['pid'])
+            ]
         
         # Update GPU list store
         self.gpu_list_store.clear()
@@ -1819,7 +1829,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def on_search_changed(self, entry):
         """Handle search text change."""
-        self.refresh_processes()
+        if self.current_tab == 'gpu':
+            self.refresh_gpu_processes()
+        else:
+            self.refresh_processes()
     
     def on_search_activate(self, entry):
         """Handle Enter key in search - select all visible (filtered) processes."""
