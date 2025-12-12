@@ -66,6 +66,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.all_user_button.connect("toggled", self.on_all_user_toggled)
         header.pack_start(self.all_user_button)
         
+        # Menu button
+        menu_button = Gtk.MenuButton()
+        menu_button.set_icon_name("open-menu-symbolic")
+        menu_button.set_menu_model(self.create_menu())
+        header.pack_end(menu_button)
+        
         main_box.append(header)
         
         # Search bar (always visible)
@@ -90,6 +96,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # System stats bar
         self.stats_bar = self.create_stats_bar()
         main_box.append(self.stats_bar)
+    
+    def create_menu(self):
+        """Create the application menu."""
+        menu = Gio.Menu()
+        
+        menu.append("About Process Manager", "app.about")
+        menu.append("Quit", "app.quit")
+        
+        return menu
     
     def on_all_user_toggled(self, button):
         """Handle All/User toggle button."""
