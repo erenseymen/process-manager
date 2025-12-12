@@ -325,6 +325,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def refresh_processes(self):
         """Refresh the process list."""
+        # Save selected PIDs before clearing
+        selection = self.tree_view.get_selection()
+        model, paths = selection.get_selected_rows()
+        selected_pids = set()
+        for path in paths:
+            iter = model.get_iter(path)
+            pid = model.get_value(iter, 6)  # PID column
+            selected_pids.add(pid)
+        
         # Get filter settings from All/User toggle
         show_all = self.all_user_button.get_active()
         my_processes = not show_all
@@ -361,6 +370,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 str(proc['nice']),
                 proc['pid']
             ])
+        
+        # Restore selection by PID
+        if selected_pids:
+            for i, row in enumerate(self.list_store):
+                if row[6] in selected_pids:  # PID column
+                    selection.select_path(Gtk.TreePath.new_from_indices([i]))
     
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""
