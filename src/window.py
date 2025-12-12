@@ -71,6 +71,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.all_user_button.connect("toggled", self.on_all_user_toggled)
         header.pack_start(self.all_user_button)
         
+        # Refresh Auto toggle button
+        self.auto_refresh_button = Gtk.ToggleButton()
+        self.auto_refresh_button.set_label("Refresh Auto")
+        # Restore saved auto refresh state (default: True)
+        auto_refresh = self.settings.get("auto_refresh", True)
+        self.auto_refresh_button.set_active(auto_refresh)
+        self.auto_refresh_button.connect("toggled", self.on_auto_refresh_toggled)
+        header.pack_end(self.auto_refresh_button)
+        
         # Menu button
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
@@ -126,6 +135,22 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Save the toggle state
         self.settings.set("show_all_toggle", button.get_active())
         self.refresh_processes()
+    
+    def on_auto_refresh_toggled(self, button):
+        """Handle Refresh Auto toggle button."""
+        auto_refresh = button.get_active()
+        # Save the toggle state
+        self.settings.set("auto_refresh", auto_refresh)
+        
+        if auto_refresh:
+            # Start the timer if not already running
+            if not self.refresh_timeout_id:
+                self.start_refresh_timer()
+        else:
+            # Stop the timer
+            if self.refresh_timeout_id:
+                GLib.source_remove(self.refresh_timeout_id)
+                self.refresh_timeout_id = None
     
     def create_process_view(self):
         """Create the process list view."""
@@ -415,6 +440,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def start_refresh_timer(self):
         """Start the auto-refresh timer."""
+        # Only start if auto refresh is enabled
+        if not self.settings.get("auto_refresh", True):
+            return
         interval = self.settings.get("refresh_interval")
         self.refresh_timeout_id = GLib.timeout_add(interval, self.on_refresh_timeout)
     

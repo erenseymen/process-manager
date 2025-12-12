@@ -23,6 +23,7 @@ class Settings:
         "window_width": 900,
         "window_height": 600,
         "show_all_toggle": True,  # All/User toggle state (True = All, False = User)
+        "auto_refresh": True,  # Auto refresh toggle state
     }
     
     def __init__(self):
