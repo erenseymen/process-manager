@@ -13,7 +13,7 @@
 
 /* Selection panel */
 .selection-panel {
-  background-color: alpha(@accent_bg_color, 0.1);
+  background-color: alpha(@accent_bg_color, 0.08);
 }
 
 .selection-panel .heading {
@@ -21,34 +21,112 @@
   font-size: 0.9em;
 }
 
-/* Selection chips */
-.selection-chip {
-  background-color: @accent_bg_color;
-  color: @accent_fg_color;
-  border-radius: 16px;
-  padding: 4px 6px 4px 12px;
-  margin: 2px;
+/* Selection comparison list */
+.selection-comparison-list {
+  background: transparent;
 }
 
-.selection-chip .chip-name {
-  font-size: 0.85em;
-  font-weight: 600;
-}
-
-.selection-chip .chip-stats {
-  font-size: 0.8em;
-  opacity: 0.85;
-}
-
-.selection-chip .chip-remove {
-  min-width: 20px;
-  min-height: 20px;
+.selection-comparison-list > row {
+  background: transparent;
   padding: 0;
-  margin-left: 2px;
+  border-bottom: 1px solid alpha(@borders, 0.3);
 }
 
-.selection-chip .chip-remove:hover {
-  background-color: alpha(@accent_fg_color, 0.2);
+.selection-comparison-list > row:last-child {
+  border-bottom: none;
+}
+
+/* Comparison row */
+.comparison-row {
+  padding: 4px 8px;
+}
+
+.comparison-name {
+  font-weight: 600;
+  font-size: 0.95em;
+}
+
+.comparison-pid {
+  font-size: 0.75em;
+  opacity: 0.6;
+  font-family: monospace;
+}
+
+/* Comparison bars */
+.comparison-bars {
+  margin-top: 4px;
+}
+
+.bar-label {
+  font-size: 0.75em;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.bar-value {
+  font-size: 0.8em;
+  font-weight: 500;
+  font-family: monospace;
+}
+
+/* Memory progress bar */
+.comparison-mem-bar {
+  min-height: 8px;
+  border-radius: 4px;
+}
+
+.comparison-mem-bar trough {
+  min-height: 8px;
+  border-radius: 4px;
+  background-color: alpha(@borders, 0.3);
+}
+
+.comparison-mem-bar progress {
+  min-height: 8px;
+  border-radius: 4px;
+  background-color: @purple_3;
+}
+
+.comparison-mem-bar.bar-low progress {
+  background-color: @blue_3;
+}
+
+.comparison-mem-bar.bar-medium progress {
+  background-color: @orange_3;
+}
+
+.comparison-mem-bar.bar-high progress {
+  background-color: @red_3;
+}
+
+/* CPU progress bar */
+.comparison-cpu-bar {
+  min-height: 6px;
+  border-radius: 3px;
+}
+
+.comparison-cpu-bar trough {
+  min-height: 6px;
+  border-radius: 3px;
+  background-color: alpha(@borders, 0.3);
+}
+
+.comparison-cpu-bar progress {
+  min-height: 6px;
+  border-radius: 3px;
+  background-color: @green_3;
+}
+
+.comparison-cpu-bar.bar-low progress {
+  background-color: @green_3;
+}
+
+.comparison-cpu-bar.bar-medium progress {
+  background-color: @yellow_3;
+}
+
+.comparison-cpu-bar.bar-high progress {
+  background-color: @red_3;
 }
 
 .toolbar {

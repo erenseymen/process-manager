@@ -8,6 +8,7 @@ A modern, GTK4-based system process manager for Linux.
 
 - **Process Monitoring**: View all running processes with detailed information
 - **Resource Usage**: Monitor CPU and memory usage per process
+- **Process Comparison**: Compare selected processes with visual memory and CPU bars
 - **System Stats**: Real-time memory and swap usage display with visual indicators
 - **Process Control**: End processes with optional confirmation
 - **Filter**: Quickly find processes by name, PID, or user

@@ -632,7 +632,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         return (val1 > val2) - (val1 < val2)
     
     def create_selection_panel(self):
-        """Create the selection panel showing selected processes grouped by name."""
+        """Create the selection panel showing selected processes grouped by name with comparison bars."""
         # Main container
         panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         panel_box.add_css_class("selection-panel")
@@ -669,18 +669,21 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         panel_box.append(header_box)
         
-        # FlowBox for selection chips (wraps to multiple lines)
-        self.selection_flow = Gtk.FlowBox()
-        self.selection_flow.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.selection_flow.set_homogeneous(False)
-        self.selection_flow.set_max_children_per_line(50)
-        self.selection_flow.set_min_children_per_line(1)
-        self.selection_flow.set_row_spacing(4)
-        self.selection_flow.set_column_spacing(6)
-        self.selection_flow.set_margin_start(12)
-        self.selection_flow.set_margin_end(12)
-        self.selection_flow.set_margin_bottom(8)
-        panel_box.append(self.selection_flow)
+        # Scrolled window for process comparison list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_max_content_height(200)
+        scrolled.set_propagate_natural_height(True)
+        
+        # ListBox for vertical process comparison
+        self.selection_list = Gtk.ListBox()
+        self.selection_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.selection_list.add_css_class("selection-comparison-list")
+        self.selection_list.set_margin_start(12)
+        self.selection_list.set_margin_end(12)
+        self.selection_list.set_margin_bottom(8)
+        scrolled.set_child(self.selection_list)
+        panel_box.append(scrolled)
         
         # Bottom separator
         sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -715,7 +718,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             return 0
     
     def update_selection_panel(self):
-        """Update the selection panel with current selection grouped by process name."""
+        """Update the selection panel with current selection grouped by process name with comparison bars."""
         count = len(self.selected_pids)
         
         # Show/hide panel based on selection
@@ -735,12 +738,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             f"Selected ({count}): CPU {total_cpu:.1f}% | Mem {self.format_memory(total_mem)}"
         )
         
-        # Clear existing chips
+        # Clear existing rows
         while True:
-            child = self.selection_flow.get_child_at_index(0)
+            child = self.selection_list.get_row_at_index(0)
             if child is None:
                 break
-            self.selection_flow.remove(child)
+            self.selection_list.remove(child)
         
         # Group processes by name
         groups = {}
@@ -752,48 +755,138 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             groups[name]['cpu'] += self.parse_cpu_str(info.get('cpu_str', '0%'))
             groups[name]['mem'] += self.parse_mem_str(info.get('mem_str', '0 B'))
         
-        # Create chips for each group
-        for name in sorted(groups.keys()):
-            group_info = groups[name]
+        # Find max values for relative bar scaling
+        max_cpu = max((g['cpu'] for g in groups.values()), default=1.0) or 1.0
+        max_mem = max((g['mem'] for g in groups.values()), default=1) or 1
+        
+        # Sort groups by memory usage (descending) for comparison
+        sorted_groups = sorted(groups.items(), key=lambda x: x[1]['mem'], reverse=True)
+        
+        # Create comparison rows for each group
+        for name, group_info in sorted_groups:
             pids = sorted(group_info['pids'])
-            chip = self.create_selection_chip(name, pids, group_info['cpu'], group_info['mem'])
-            self.selection_flow.append(chip)
+            row = self.create_comparison_row(name, pids, group_info['cpu'], group_info['mem'], max_cpu, max_mem)
+            self.selection_list.append(row)
     
-    def create_selection_chip(self, name, pids, total_cpu, total_mem):
-        """Create a chip widget for a selected process group."""
-        chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        chip_box.add_css_class("selection-chip")
+    def create_comparison_row(self, name, pids, total_cpu, total_mem, max_cpu, max_mem):
+        """Create a comparison row widget for a selected process group with memory/CPU bars."""
+        # Main row container
+        row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        row_box.add_css_class("comparison-row")
+        row_box.set_margin_top(6)
+        row_box.set_margin_bottom(6)
+        
+        # Header: Process name + count + remove button
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         
         # Process name and count
         if len(pids) == 1:
             name_text = f"{name}"
+            pid_text = f"PID: {pids[0]}"
         else:
             name_text = f"{name} ({len(pids)})"
+            pid_text = f"PIDs: {', '.join(str(p) for p in pids[:3])}" + ("..." if len(pids) > 3 else "")
+        
+        name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        name_box.set_hexpand(True)
         
         name_label = Gtk.Label(label=name_text)
         name_label.set_ellipsize(Pango.EllipsizeMode.END)
-        name_label.set_max_width_chars(20)
-        name_label.add_css_class("chip-name")
-        chip_box.append(name_label)
+        name_label.set_halign(Gtk.Align.START)
+        name_label.add_css_class("comparison-name")
+        name_box.append(name_label)
         
-        # Stats (CPU and Memory)
-        stats_text = f"{total_cpu:.1f}% · {self.format_memory(total_mem)}"
-        stats_label = Gtk.Label(label=stats_text)
-        stats_label.add_css_class("chip-stats")
-        chip_box.append(stats_label)
+        pid_label = Gtk.Label(label=pid_text)
+        pid_label.set_ellipsize(Pango.EllipsizeMode.END)
+        pid_label.set_halign(Gtk.Align.START)
+        pid_label.add_css_class("comparison-pid")
+        name_box.append(pid_label)
+        
+        header_box.append(name_box)
         
         # Remove button
         remove_btn = Gtk.Button()
         remove_btn.set_icon_name("window-close-symbolic")
         remove_btn.add_css_class("flat")
         remove_btn.add_css_class("circular")
-        remove_btn.add_css_class("chip-remove")
         remove_btn.set_valign(Gtk.Align.CENTER)
-        # Remove all PIDs in this group when clicked
+        remove_btn.set_tooltip_text("Remove from selection")
         remove_btn.connect("clicked", lambda b: self.remove_group_from_selection(pids))
-        chip_box.append(remove_btn)
+        header_box.append(remove_btn)
         
-        return chip_box
+        row_box.append(header_box)
+        
+        # Stats bars container
+        bars_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        bars_box.add_css_class("comparison-bars")
+        
+        # Memory bar (primary comparison)
+        mem_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        
+        mem_label = Gtk.Label(label="Mem")
+        mem_label.add_css_class("bar-label")
+        mem_label.set_width_chars(4)
+        mem_label.set_xalign(0)
+        mem_bar_box.append(mem_label)
+        
+        # Memory progress bar
+        mem_fraction = (total_mem / max_mem) if max_mem > 0 else 0
+        mem_bar = Gtk.ProgressBar()
+        mem_bar.set_fraction(mem_fraction)
+        mem_bar.set_hexpand(True)
+        mem_bar.add_css_class("comparison-mem-bar")
+        # Add color class based on absolute memory usage
+        if total_mem > 1024 * 1024 * 1024:  # > 1 GiB
+            mem_bar.add_css_class("bar-high")
+        elif total_mem > 256 * 1024 * 1024:  # > 256 MiB
+            mem_bar.add_css_class("bar-medium")
+        else:
+            mem_bar.add_css_class("bar-low")
+        mem_bar_box.append(mem_bar)
+        
+        mem_value = Gtk.Label(label=self.format_memory(total_mem))
+        mem_value.add_css_class("bar-value")
+        mem_value.set_width_chars(10)
+        mem_value.set_xalign(1)
+        mem_bar_box.append(mem_value)
+        
+        bars_box.append(mem_bar_box)
+        
+        # CPU bar
+        cpu_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        
+        cpu_label = Gtk.Label(label="CPU")
+        cpu_label.add_css_class("bar-label")
+        cpu_label.set_width_chars(4)
+        cpu_label.set_xalign(0)
+        cpu_bar_box.append(cpu_label)
+        
+        # CPU progress bar
+        cpu_fraction = (total_cpu / max_cpu) if max_cpu > 0 else 0
+        cpu_bar = Gtk.ProgressBar()
+        cpu_bar.set_fraction(cpu_fraction)
+        cpu_bar.set_hexpand(True)
+        cpu_bar.add_css_class("comparison-cpu-bar")
+        # Add color class based on absolute CPU usage
+        if total_cpu > 50:
+            cpu_bar.add_css_class("bar-high")
+        elif total_cpu > 10:
+            cpu_bar.add_css_class("bar-medium")
+        else:
+            cpu_bar.add_css_class("bar-low")
+        cpu_bar_box.append(cpu_bar)
+        
+        cpu_value = Gtk.Label(label=f"{total_cpu:.1f}%")
+        cpu_value.add_css_class("bar-value")
+        cpu_value.set_width_chars(10)
+        cpu_value.set_xalign(1)
+        cpu_bar_box.append(cpu_value)
+        
+        bars_box.append(cpu_bar_box)
+        
+        row_box.append(bars_box)
+        
+        return row_box
     
     def remove_group_from_selection(self, pids):
         """Remove a group of processes from selection."""
