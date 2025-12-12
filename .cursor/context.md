@@ -19,6 +19,14 @@ This file contains important context about the codebase for AI assistants.
 - Process list columns dynamically added when GPU tab active: GPU usage, encoding usage, decoding usage (per GPU type)
 - GPU stats bar updates conditionally based on active tab
 
+### Intel GPU Per-Process Stats (2025-12-12)
+- Uses `/proc/[pid]/fdinfo/*` to read DRM engine usage (Linux 5.19+ kernels)
+- Reads `drm-engine-render:` and `drm-engine-video:` entries (nanoseconds cumulative)
+- Calculates delta between readings to compute percentage usage
+- Cache stores previous readings with timestamps in `_intel_fdinfo_cache`
+- Falls back to `intel_gpu_top` if fdinfo method fails
+- Video engine usage shown as encoding/decoding (Intel HW encoder/decoder)
+
 ### Design Patterns
 - Type hints used throughout for improved IDE support
 - Settings stored in JSON format at `~/.config/process-manager/settings.json`
