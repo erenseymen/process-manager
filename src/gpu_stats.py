@@ -7,7 +7,8 @@ import glob
 import json
 import os
 import subprocess
-from typing import TYPE_CHECKING, Dict, List, Optional, Any
+import time
+from typing import TYPE_CHECKING, Dict, List, Optional, Any, Tuple
 
 from .ps_commands import run_host_command, is_flatpak
 
@@ -21,6 +22,9 @@ class GPUStats:
     def __init__(self) -> None:
         self.gpu_types: List[str] = []
         self._detect_gpus()
+        # Cache for Intel fdinfo readings (for calculating usage percentages)
+        self._intel_fdinfo_cache: Dict[int, Dict[str, Any]] = {}
+        self._intel_fdinfo_timestamp: float = 0.0
     
     def _detect_gpus(self) -> None:
         """Detect available GPU types."""
@@ -296,115 +300,152 @@ class GPUStats:
         return processes
     
     def _get_intel_processes(self) -> Dict[int, Dict[str, Any]]:
-        """Get Intel GPU process information."""
+        """Get Intel GPU process information.
+        
+        Uses /proc/[pid]/fdinfo to read DRM engine usage statistics.
+        This works on modern Linux kernels (5.19+) without requiring intel_gpu_top.
+        """
         processes: Dict[int, Dict[str, Any]] = {}
         
+        # First try the fdinfo method (works without intel_gpu_top)
+        fdinfo_processes = self._get_intel_fdinfo_processes()
+        if fdinfo_processes:
+            processes.update(fdinfo_processes)
+            return processes
+        
+        # Fallback: Try intel_gpu_top if fdinfo method didn't work
         try:
-            # Try intel_gpu_top first (if available) - it provides per-process stats
+            # intel_gpu_top format: PID Name GPU% Render% Blitter% Video% VideoEU%
+            # Use -J for JSON output if available, otherwise parse text
+            cmd_json = ['timeout', '2', 'intel_gpu_top', '-J', '-l', '1', '-s', '500']
             try:
-                # intel_gpu_top format: PID Name GPU% Render% Blitter% Video% VideoEU%
-                # Use -J for JSON output if available, otherwise parse text
-                cmd_json = ['timeout', '2', 'intel_gpu_top', '-J', '-l', '1', '-s', '500']
-                try:
-                    output_json = run_host_command(cmd_json)
-                    if output_json and output_json.strip():
-                        # Try to parse JSON output
-                        data = json.loads(output_json)
-                        # Parse JSON structure (format may vary)
-                        if 'engines' in data or 'processes' in data:
-                            # Extract process data from JSON
-                            proc_data = data.get('processes', data.get('engines', {}))
-                            for pid_str, proc_info in proc_data.items():
-                                try:
-                                    pid = int(pid_str)
-                                    gpu_usage = float(proc_info.get('gpu', proc_info.get('GPU', 0)))
-                                    video_usage = float(proc_info.get('video', proc_info.get('Video', 0)))
-                                    if gpu_usage > 0 or video_usage > 0:
-                                        processes[pid] = {
-                                            'gpu_usage': gpu_usage,
-                                            'gpu_memory': 0,
-                                            'encoding': video_usage if video_usage > 0 else 0.0,
-                                            'decoding': 0.0
-                                        }
-                                except (ValueError, KeyError):
-                                    continue
-                except Exception:
-                    # Fall back to text parsing
-                    pass
-                
-                # If JSON parsing failed or no data, try text output
-                if not processes:
-                    cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
-                    output = run_host_command(cmd)
-                    
-                    # Parse intel_gpu_top text output
-                    # Format varies, but typically: PID Name GPU% Render% Blitter% Video% VideoEU%
-                    for line in output.split('\n'):
-                        line = line.strip()
-                        if not line or line.startswith('#') or 'PID' in line or 'Name' in line:
-                            continue
-                        
-                        # Look for process lines (they start with a PID number)
-                        parts = line.split()
-                        if len(parts) >= 3:
+                output_json = run_host_command(cmd_json)
+                if output_json and output_json.strip():
+                    # Try to parse JSON output
+                    data = json.loads(output_json)
+                    # Parse JSON structure (format may vary)
+                    if 'engines' in data or 'processes' in data:
+                        # Extract process data from JSON
+                        proc_data = data.get('processes', data.get('engines', {}))
+                        for pid_str, proc_info in proc_data.items():
                             try:
-                                pid = int(parts[0])
-                                # Check if this looks like a process line (PID should be first)
-                                if 0 < pid < 1000000:  # Reasonable PID range
-                                    # Try to find GPU usage percentage
-                                    # Usually format: PID Name GPU% Render% Blitter% Video% VideoEU%
-                                    gpu_usage = 0.0
-                                    video_usage = 0.0
-                                    
-                                    # Look for percentages in the line
-                                    for i, part in enumerate(parts[1:], 1):
-                                        if '%' in part:
-                                            try:
-                                                val = float(part.rstrip('%'))
-                                                # First percentage after PID and name is usually GPU%
-                                                if gpu_usage == 0.0 and i <= 3:
-                                                    gpu_usage = val
-                                                # Video% columns (usually 5th or 6th)
-                                                elif i >= 5:
-                                                    if video_usage == 0.0:
-                                                        video_usage = val
-                                            except ValueError:
-                                                pass
-                                    
-                                    if gpu_usage > 0 or video_usage > 0:
-                                        processes[pid] = {
-                                            'gpu_usage': gpu_usage,
-                                            'gpu_memory': 0,  # intel_gpu_top doesn't provide memory
-                                            'encoding': video_usage,
-                                            'decoding': 0.0  # Hard to distinguish encode/decode from text output
-                                        }
-                            except (ValueError, IndexError):
+                                pid = int(pid_str)
+                                gpu_usage = float(proc_info.get('gpu', proc_info.get('GPU', 0)))
+                                video_usage = float(proc_info.get('video', proc_info.get('Video', 0)))
+                                if gpu_usage > 0 or video_usage > 0:
+                                    processes[pid] = {
+                                        'gpu_usage': gpu_usage,
+                                        'gpu_memory': 0,
+                                        'encoding': video_usage if video_usage > 0 else 0.0,
+                                        'decoding': 0.0
+                                    }
+                            except (ValueError, KeyError):
                                 continue
             except Exception:
                 pass
-            
-            # Alternative: Try to read from /sys/class/drm (if accessible)
-            # This is limited but can provide some info
-            try:
-                for card_path in glob.glob('/sys/class/drm/card*/device'):
-                    if os.path.exists(card_path):
-                        vendor_path = os.path.join(card_path, 'vendor')
-                        if os.path.exists(vendor_path):
-                            try:
-                                with open(vendor_path, 'r') as f:
-                                    vendor_id = f.read().strip()
-                                    if vendor_id == '0x8086':
-                                        # Intel GPU found
-                                        # Per-process stats from sysfs are very limited
-                                        # We rely on intel_gpu_top for that
-                                        pass
-                            except (OSError, IOError):
-                                pass
-            except Exception:
-                pass
-                
         except Exception:
             pass
+        
+        return processes
+    
+    def _get_intel_fdinfo_processes(self) -> Dict[int, Dict[str, Any]]:
+        """Get Intel GPU process info from /proc/[pid]/fdinfo.
+        
+        Modern Linux kernels expose DRM engine usage in fdinfo files.
+        Format: drm-engine-<name>: <ns> ns
+        """
+        processes: Dict[int, Dict[str, Any]] = {}
+        current_time = time.time()
+        
+        # Collect current fdinfo readings
+        current_readings: Dict[int, Dict[str, int]] = {}
+        
+        try:
+            # Iterate through all processes
+            for proc_dir in glob.glob('/proc/[0-9]*'):
+                try:
+                    pid = int(os.path.basename(proc_dir))
+                    fdinfo_dir = os.path.join(proc_dir, 'fdinfo')
+                    
+                    if not os.path.isdir(fdinfo_dir):
+                        continue
+                    
+                    # Check each fd for DRM engine info
+                    render_ns = 0
+                    video_ns = 0
+                    found_drm = False
+                    
+                    for fd_file in os.listdir(fdinfo_dir):
+                        fd_path = os.path.join(fdinfo_dir, fd_file)
+                        try:
+                            with open(fd_path, 'r') as f:
+                                content = f.read()
+                                
+                            # Look for Intel GPU specific drm-engine entries
+                            if 'drm-engine-render:' in content or 'drm-engine-video:' in content:
+                                found_drm = True
+                                for line in content.split('\n'):
+                                    line = line.strip()
+                                    if line.startswith('drm-engine-render:'):
+                                        try:
+                                            # Format: "drm-engine-render: 1234567890 ns"
+                                            val = line.split(':')[1].strip().split()[0]
+                                            render_ns = max(render_ns, int(val))
+                                        except (ValueError, IndexError):
+                                            pass
+                                    elif line.startswith('drm-engine-video:'):
+                                        try:
+                                            val = line.split(':')[1].strip().split()[0]
+                                            video_ns = max(video_ns, int(val))
+                                        except (ValueError, IndexError):
+                                            pass
+                        except (OSError, IOError, PermissionError):
+                            continue
+                    
+                    if found_drm:
+                        current_readings[pid] = {
+                            'render_ns': render_ns,
+                            'video_ns': video_ns
+                        }
+                        
+                except (ValueError, OSError, PermissionError):
+                    continue
+                    
+        except Exception:
+            pass
+        
+        # Calculate usage percentages from delta between readings
+        time_delta = current_time - self._intel_fdinfo_timestamp
+        
+        if time_delta > 0.1 and self._intel_fdinfo_cache:  # Need at least 100ms between readings
+            for pid, current in current_readings.items():
+                if pid in self._intel_fdinfo_cache:
+                    prev = self._intel_fdinfo_cache[pid]
+                    
+                    # Calculate delta in nanoseconds
+                    render_delta = current['render_ns'] - prev['render_ns']
+                    video_delta = current['video_ns'] - prev['video_ns']
+                    
+                    # Convert to percentage (time_delta is in seconds, deltas are in ns)
+                    # time_delta * 1e9 = time delta in nanoseconds
+                    time_delta_ns = time_delta * 1e9
+                    
+                    if time_delta_ns > 0:
+                        render_pct = min(100.0, (render_delta / time_delta_ns) * 100.0)
+                        video_pct = min(100.0, (video_delta / time_delta_ns) * 100.0)
+                        
+                        # Only include if there's actual usage
+                        if render_pct > 0.1 or video_pct > 0.1:
+                            processes[pid] = {
+                                'gpu_usage': render_pct,
+                                'gpu_memory': 0,
+                                'encoding': video_pct,  # Video engine handles both enc/dec
+                                'decoding': video_pct
+                            }
+        
+        # Update cache
+        self._intel_fdinfo_cache = current_readings
+        self._intel_fdinfo_timestamp = current_time
         
         return processes
     
@@ -519,11 +560,29 @@ class GPUStats:
         return stats
     
     def _get_intel_total_stats(self) -> Dict[str, float]:
-        """Get total Intel GPU statistics."""
+        """Get total Intel GPU statistics.
+        
+        Aggregates per-process stats to get total GPU usage.
+        """
         stats = {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
         
+        # Get per-process stats and sum them up
+        processes = self._get_intel_processes()
+        if processes:
+            total_gpu = 0.0
+            total_video = 0.0
+            for proc_info in processes.values():
+                total_gpu += proc_info.get('gpu_usage', 0)
+                total_video += proc_info.get('encoding', 0)
+            
+            # Cap at 100%
+            stats['gpu_usage'] = min(100.0, total_gpu)
+            stats['encoding'] = min(100.0, total_video)
+            stats['decoding'] = min(100.0, total_video)
+            return stats
+        
+        # Fallback: Try intel_gpu_top for overall stats
         try:
-            # Try intel_gpu_top for overall stats
             cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
             output = run_host_command(cmd)
             
@@ -546,15 +605,7 @@ class GPUStats:
                     except (ValueError, IndexError):
                         continue
         except Exception:
-            # Fallback: try /sys/class/drm for basic info
-            try:
-                for card_path in glob.glob('/sys/class/drm/card*/device'):
-                    if os.path.exists(os.path.join(card_path, 'vendor')):
-                        # Intel GPU stats from sysfs are limited
-                        # We can't get usage percentages from sysfs easily
-                        pass
-            except Exception:
-                pass
+            pass
         
         return stats
     

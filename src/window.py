@@ -1652,24 +1652,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Get GPU process data (only when on GPU tab)
         gpu_processes = self.gpu_stats.get_gpu_processes()
         
-        # #region agent log
-        try:
-            import json
-            with open('/home/erens/repos/process-manager/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    'sessionId': 'debug-session',
-                    'runId': 'run1',
-                    'hypothesisId': 'H6',
-                    'location': 'window.py:refresh_gpu_processes',
-                    'message': 'GPU processes retrieved for UI',
-                    'data': {'gpu_process_count': len(gpu_processes), 'gpu_types': self.gpu_stats.gpu_types, 'sample_pids': list(gpu_processes.keys())[:5]},
-                    'timestamp': 0
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         # Combine process info with GPU info
         # Show all processes, but highlight those with GPU usage
         combined_processes = []
