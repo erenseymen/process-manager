@@ -33,6 +33,17 @@ class TerminationDialog(Adw.Window):
         
         self.parent_window = parent
         self.process_manager = process_manager
+        
+        # Group processes by name
+        self.process_groups = {}
+        for p in processes:
+            name = p['name']
+            pid = p['pid']
+            if name not in self.process_groups:
+                self.process_groups[name] = []
+            self.process_groups[name].append(pid)
+        
+        # Keep individual process tracking for status
         self.processes = {p['pid']: {'name': p['name'], 'status': 'pending'} for p in processes}
         self.check_timeout_id = None
         self.confirmed = False
@@ -77,11 +88,11 @@ class TerminationDialog(Adw.Window):
         scrolled.set_child(self.process_list_box)
         content_box.append(scrolled)
         
-        # Build process rows
+        # Build process rows (grouped by name)
         self.process_rows = {}
-        for pid, info in self.processes.items():
-            row = self.create_process_row(pid, info['name'])
-            self.process_rows[pid] = row
+        for name, pids in sorted(self.process_groups.items()):
+            row = self.create_process_row(name, pids)
+            self.process_rows[name] = row
             self.process_list_box.append(row['row'])
         
         # Button box
@@ -121,11 +132,20 @@ class TerminationDialog(Adw.Window):
         key_controller.connect("key-pressed", self.on_key_pressed)
         self.add_controller(key_controller)
     
-    def create_process_row(self, pid, name):
-        """Create a row for a process in the list."""
+    def create_process_row(self, name, pids):
+        """Create a row for a process group in the list."""
         row = Adw.ActionRow()
-        row.set_title(name)
-        row.set_subtitle(f"PID: {pid}")
+        
+        # Set title with count if multiple processes
+        if len(pids) == 1:
+            row.set_title(name)
+            row.set_subtitle(f"PID: {pids[0]}")
+        else:
+            row.set_title(f"{name} ({len(pids)})")
+            pids_str = ", ".join(str(pid) for pid in sorted(pids)[:5])
+            if len(pids) > 5:
+                pids_str += f", ... (+{len(pids) - 5} more)"
+            row.set_subtitle(f"PIDs: {pids_str}")
         
         # Status icon
         status_icon = Gtk.Image()
@@ -138,14 +158,15 @@ class TerminationDialog(Adw.Window):
         kill_button.set_tooltip_text("Force Kill (SIGKILL)")
         kill_button.add_css_class("destructive-action")
         kill_button.set_valign(Gtk.Align.CENTER)
-        kill_button.connect("clicked", lambda b: self.on_kill_single(pid))
+        kill_button.connect("clicked", lambda b: self.on_kill_group(name, pids))
         kill_button.set_visible(False)
         row.add_suffix(kill_button)
         
         return {
             'row': row,
             'status_icon': status_icon,
-            'kill_button': kill_button
+            'kill_button': kill_button,
+            'pids': pids
         }
     
     def update_status_label(self):
@@ -171,24 +192,40 @@ class TerminationDialog(Adw.Window):
                     f"{running} process(es) still running."
                 )
     
-    def update_process_row(self, pid, status):
-        """Update the visual state of a process row."""
-        if pid not in self.process_rows:
+    def update_process_row(self, name):
+        """Update the visual state of a process group row."""
+        if name not in self.process_rows:
             return
         
-        row_data = self.process_rows[pid]
+        row_data = self.process_rows[name]
+        pids = row_data['pids']
         
-        if status == 'terminated':
+        # Check status of all PIDs in this group
+        statuses = [self.processes[pid]['status'] for pid in pids if pid in self.processes]
+        
+        # Determine overall status
+        if all(s == 'terminated' for s in statuses):
+            # All terminated
             row_data['status_icon'].set_from_icon_name("emblem-ok-symbolic")
             row_data['status_icon'].add_css_class("success")
             row_data['kill_button'].set_visible(False)
-            row_data['row'].set_subtitle(f"PID: {pid} - Terminated")
-        elif status == 'running':
+            if len(pids) == 1:
+                row_data['row'].set_subtitle(f"PID: {pids[0]} - Terminated")
+            else:
+                row_data['row'].set_subtitle(f"{len(pids)} processes - All terminated")
+        elif any(s == 'running' for s in statuses):
+            # Some still running
             row_data['status_icon'].set_from_icon_name("dialog-warning-symbolic")
             row_data['status_icon'].add_css_class("warning")
             row_data['kill_button'].set_visible(True)
-            row_data['row'].set_subtitle(f"PID: {pid} - Still running")
-        elif status == 'pending':
+            running_count = sum(1 for s in statuses if s == 'running')
+            terminated_count = sum(1 for s in statuses if s == 'terminated')
+            if len(pids) == 1:
+                row_data['row'].set_subtitle(f"PID: {pids[0]} - Still running")
+            else:
+                row_data['row'].set_subtitle(f"{running_count} running, {terminated_count} terminated")
+        else:
+            # All pending
             row_data['status_icon'].set_from_icon_name("content-loading-symbolic")
             row_data['kill_button'].set_visible(False)
     
@@ -235,12 +272,14 @@ class TerminationDialog(Adw.Window):
             # Check if process is still running
             if self.is_process_running(pid):
                 self.processes[pid]['status'] = 'running'
-                self.update_process_row(pid, 'running')
                 all_terminated = False
                 any_running = True
             else:
                 self.processes[pid]['status'] = 'terminated'
-                self.update_process_row(pid, 'terminated')
+        
+        # Update all process group rows
+        for name in self.process_rows:
+            self.update_process_row(name)
         
         # Update status label
         self.update_status_label()
@@ -266,12 +305,14 @@ class TerminationDialog(Adw.Window):
             # Process exists but we don't have permission to signal it
             return True
     
-    def on_kill_single(self, pid):
-        """Handle kill button for a single process."""
-        try:
-            self.process_manager.kill_process(pid, signal.SIGKILL)
-        except Exception:
-            pass
+    def on_kill_group(self, name, pids):
+        """Handle kill button for a process group."""
+        for pid in pids:
+            if pid in self.processes and self.processes[pid]['status'] == 'running':
+                try:
+                    self.process_manager.kill_process(pid, signal.SIGKILL)
+                except Exception:
+                    pass
         
         # Immediately check status
         GLib.timeout_add(100, self.check_processes_status)
