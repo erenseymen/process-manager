@@ -356,6 +356,16 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Header bar
         header = Adw.HeaderBar()
         
+        # Auto Refresh Play/Pause toggle button (first in title)
+        self.auto_refresh_button = Gtk.ToggleButton()
+        # Restore saved auto refresh state (default: True)
+        auto_refresh = self.settings.get("auto_refresh", True)
+        self.auto_refresh_button.set_active(auto_refresh)
+        self.auto_refresh_button.set_icon_name("media-playback-pause-symbolic" if auto_refresh else "media-playback-start-symbolic")
+        self.auto_refresh_button.set_tooltip_text("Pause Auto Refresh" if auto_refresh else "Start Auto Refresh")
+        self.auto_refresh_button.connect("toggled", self.on_auto_refresh_toggled)
+        header.pack_start(self.auto_refresh_button)
+        
         # Kill button
         kill_button = Gtk.Button()
         kill_button.set_icon_name("process-stop-symbolic")
@@ -372,15 +382,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.all_user_button.set_label("All" if show_all else "User")
         self.all_user_button.connect("toggled", self.on_all_user_toggled)
         header.pack_start(self.all_user_button)
-        
-        # Refresh Auto toggle button
-        self.auto_refresh_button = Gtk.ToggleButton()
-        self.auto_refresh_button.set_label("Refresh Auto")
-        # Restore saved auto refresh state (default: True)
-        auto_refresh = self.settings.get("auto_refresh", True)
-        self.auto_refresh_button.set_active(auto_refresh)
-        self.auto_refresh_button.connect("toggled", self.on_auto_refresh_toggled)
-        header.pack_end(self.auto_refresh_button)
         
         # Menu button
         menu_button = Gtk.MenuButton()
@@ -450,11 +451,16 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Save the toggle state
         self.settings.set("auto_refresh", auto_refresh)
         
+        # Update icon and tooltip
         if auto_refresh:
+            button.set_icon_name("media-playback-pause-symbolic")
+            button.set_tooltip_text("Pause Auto Refresh")
             # Start the timer if not already running
             if not self.refresh_timeout_id:
                 self.start_refresh_timer()
         else:
+            button.set_icon_name("media-playback-start-symbolic")
+            button.set_tooltip_text("Start Auto Refresh")
             # Stop the timer
             if self.refresh_timeout_id:
                 GLib.source_remove(self.refresh_timeout_id)
