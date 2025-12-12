@@ -145,7 +145,8 @@ class GPUStats:
                 # #region agent log
                 _debug_log('gpu_stats.py:_detect_gpus', 'flatpak-spawn intel_gpu_top result', {'result_length': len(result) if result else 0, 'result_preview': result[:100] if result else None}, 'H2')
                 # #endregion
-                if result or True:  # If command exists, assume Intel GPU
+                # Check if command succeeded (result is not empty or error)
+                if result:  # If command exists and returns output, verify via vendor ID
                     # Verify by checking /sys/class/drm
                     import os
                     # #region agent log
@@ -419,71 +420,109 @@ class GPUStats:
             
             # Try intel_gpu_top first (if available) - it provides per-process stats
             try:
-                cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
-                # #region agent log
-                _debug_log('gpu_stats.py:_get_intel_processes', 'Running intel_gpu_top command', {'cmd': cmd}, 'H3')
-                # #endregion
-                output = run_host_command(cmd)
-                # #region agent log
-                _debug_log('gpu_stats.py:_get_intel_processes', 'intel_gpu_top output received', {'output_length': len(output), 'output_preview': output[:500] if output else None, 'line_count': len(output.split('\n'))}, 'H3')
-                # #endregion
+                # intel_gpu_top format: PID Name GPU% Render% Blitter% Video% VideoEU%
+                # Use -J for JSON output if available, otherwise parse text
+                cmd_json = ['timeout', '2', 'intel_gpu_top', '-J', '-l', '1', '-s', '500']
+                output_json = None
+                try:
+                    output_json = run_host_command(cmd_json)
+                    if output_json and output_json.strip():
+                        # Try to parse JSON output
+                        import json as json_lib
+                        data = json_lib.loads(output_json)
+                        # #region agent log
+                        _debug_log('gpu_stats.py:_get_intel_processes', 'intel_gpu_top JSON output received', {'has_data': bool(data)}, 'H3')
+                        # #endregion
+                        # Parse JSON structure (format may vary)
+                        if 'engines' in data or 'processes' in data:
+                            # Extract process data from JSON
+                            proc_data = data.get('processes', data.get('engines', {}))
+                            for pid_str, proc_info in proc_data.items():
+                                try:
+                                    pid = int(pid_str)
+                                    gpu_usage = float(proc_info.get('gpu', proc_info.get('GPU', 0)))
+                                    video_usage = float(proc_info.get('video', proc_info.get('Video', 0)))
+                                    if gpu_usage > 0 or video_usage > 0:
+                                        processes[pid] = {
+                                            'gpu_usage': gpu_usage,
+                                            'gpu_memory': 0,
+                                            'encoding': video_usage if video_usage > 0 else 0.0,
+                                            'decoding': 0.0
+                                        }
+                                except (ValueError, KeyError):
+                                    continue
+                except Exception:
+                    # Fall back to text parsing
+                    pass
                 
-                # Parse intel_gpu_top output
-                # Format: PID, Name, GPU%, Render%, Blitter%, Video%, VideoEU%
-                current_pid = None
-                parsed_count = 0
-                for line in output.split('\n'):
-                    line = line.strip()
-                    if not line or line.startswith('#'):
-                        continue
+                # If JSON parsing failed or no data, try text output
+                if not processes:
+                    cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_get_intel_processes', 'Running intel_gpu_top text command', {'cmd': cmd}, 'H3')
+                    # #endregion
+                    output = run_host_command(cmd)
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_get_intel_processes', 'intel_gpu_top text output received', {'output_length': len(output), 'output_preview': output[:500] if output else None, 'line_count': len(output.split('\n'))}, 'H3')
+                    # #endregion
                     
-                    # Look for process lines (they start with a PID number)
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        try:
-                            pid = int(parts[0])
-                            # Check if this looks like a process line (PID should be first)
-                            if 0 < pid < 1000000:  # Reasonable PID range
-                                # Try to find GPU usage percentage
-                                gpu_usage = 0.0
-                                enc_usage = 0.0
-                                dec_usage = 0.0
-                                
-                                for part in parts[1:]:
-                                    if '%' in part:
-                                        try:
-                                            val = float(part.rstrip('%'))
-                                            # First percentage is usually GPU usage
-                                            if gpu_usage == 0.0:
-                                                gpu_usage = val
-                                            # Look for Video% which indicates encoding/decoding
-                                            elif 'Video' in line or 'video' in line.lower():
-                                                if enc_usage == 0.0:
-                                                    enc_usage = val
-                                                else:
-                                                    dec_usage = val
-                                        except ValueError:
-                                            pass
-                                
-                                if gpu_usage > 0 or enc_usage > 0 or dec_usage > 0:
-                                    processes[pid] = {
-                                        'gpu_usage': gpu_usage,
-                                        'gpu_memory': 0,  # intel_gpu_top doesn't provide memory
-                                        'encoding': enc_usage,
-                                        'decoding': dec_usage
-                                    }
-                                    parsed_count += 1
-                                    # #region agent log
-                                    _debug_log('gpu_stats.py:_get_intel_processes', 'Parsed Intel GPU process', {'pid': pid, 'gpu_usage': gpu_usage, 'encoding': enc_usage, 'decoding': dec_usage, 'line': line[:100]}, 'H3')
-                                    # #endregion
-                        except (ValueError, IndexError) as e:
-                            # #region agent log
-                            _debug_log('gpu_stats.py:_get_intel_processes', 'Parse error for line', {'line': line[:100], 'error': str(e)}, 'H3')
-                            # #endregion
+                    # Parse intel_gpu_top text output
+                    # Format varies, but typically: PID Name GPU% Render% Blitter% Video% VideoEU%
+                    parsed_count = 0
+                    for line in output.split('\n'):
+                        line = line.strip()
+                        if not line or line.startswith('#') or 'PID' in line or 'Name' in line:
                             continue
-                # #region agent log
-                _debug_log('gpu_stats.py:_get_intel_processes', 'Intel GPU process parsing completed', {'parsed_count': parsed_count, 'total_processes': len(processes)}, 'H3')
-                # #endregion
+                        
+                        # Look for process lines (they start with a PID number)
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            try:
+                                pid = int(parts[0])
+                                # Check if this looks like a process line (PID should be first)
+                                if 0 < pid < 1000000:  # Reasonable PID range
+                                    # Try to find GPU usage percentage
+                                    # Usually format: PID Name GPU% Render% Blitter% Video% VideoEU%
+                                    gpu_usage = 0.0
+                                    video_usage = 0.0
+                                    
+                                    # Look for percentages in the line
+                                    for i, part in enumerate(parts[1:], 1):
+                                        if '%' in part:
+                                            try:
+                                                val = float(part.rstrip('%'))
+                                                # First percentage after PID and name is usually GPU%
+                                                if gpu_usage == 0.0 and i <= 3:
+                                                    gpu_usage = val
+                                                # Video% columns (usually 5th or 6th)
+                                                elif i >= 5:
+                                                    if video_usage == 0.0:
+                                                        video_usage = val
+                                                    else:
+                                                        # Second video column might be decoding
+                                                        pass
+                                            except ValueError:
+                                                pass
+                                    
+                                    if gpu_usage > 0 or video_usage > 0:
+                                        processes[pid] = {
+                                            'gpu_usage': gpu_usage,
+                                            'gpu_memory': 0,  # intel_gpu_top doesn't provide memory
+                                            'encoding': video_usage,
+                                            'decoding': 0.0  # Hard to distinguish encode/decode from text output
+                                        }
+                                        parsed_count += 1
+                                        # #region agent log
+                                        _debug_log('gpu_stats.py:_get_intel_processes', 'Parsed Intel GPU process', {'pid': pid, 'gpu_usage': gpu_usage, 'video_usage': video_usage, 'line': line[:100]}, 'H3')
+                                        # #endregion
+                            except (ValueError, IndexError) as e:
+                                # #region agent log
+                                _debug_log('gpu_stats.py:_get_intel_processes', 'Parse error for line', {'line': line[:100], 'error': str(e)}, 'H3')
+                                # #endregion
+                                continue
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_get_intel_processes', 'Intel GPU process parsing completed', {'parsed_count': parsed_count, 'total_processes': len(processes)}, 'H3')
+                    # #endregion
             except Exception as e:
                 # #region agent log
                 _debug_log('gpu_stats.py:_get_intel_processes', 'intel_gpu_top command failed', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H3')
