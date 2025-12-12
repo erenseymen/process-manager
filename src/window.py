@@ -39,6 +39,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.refresh_processes()
         self.update_system_stats()
         
+        # Select first item after processes are loaded
+        GLib.idle_add(self.select_first_item)
+        
         # Connect window close to cleanup
         self.connect("close-request", self.on_close_request)
     
@@ -76,15 +79,20 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         main_box.append(header)
         
-        # Search bar (always visible)
+        # Search bar (hidden by default, shown when typing)
         self.search_bar = Gtk.SearchBar()
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", self.on_search_changed)
         self.search_bar.set_child(self.search_entry)
         self.search_bar.connect_entry(self.search_entry)
-        self.search_bar.set_search_mode(True)  # Always visible
+        self.search_bar.set_search_mode(False)  # Hidden by default
         main_box.append(self.search_bar)
+        
+        # Key controller for typing to trigger search
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self.on_key_pressed)
+        self.add_controller(key_controller)
         
         # Process list
         scrolled = Gtk.ScrolledWindow()
@@ -405,6 +413,40 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def on_search_changed(self, entry):
         """Handle search text change."""
         self.refresh_processes()
+        
+        # Hide search bar when search text is empty
+        if not entry.get_text():
+            self.search_bar.set_search_mode(False)
+    
+    def select_first_item(self):
+        """Select the first item in the process list."""
+        if len(self.list_store) > 0:
+            selection = self.tree_view.get_selection()
+            selection.select_path(Gtk.TreePath.new_first())
+        return False  # Don't repeat
+    
+    def on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle key press to open search bar and type."""
+        # Ignore if search bar is already active and focused
+        if self.search_entry.has_focus():
+            return False
+        
+        # Get the character from keyval
+        char = chr(keyval) if 32 <= keyval <= 126 else None
+        
+        # Check if it's a printable character (letter, number, etc.)
+        if char and char.isprintable():
+            # Open search bar
+            self.search_bar.set_search_mode(True)
+            # Focus search entry
+            self.search_entry.grab_focus()
+            # Insert the typed character
+            self.search_entry.set_text(char)
+            # Move cursor to end
+            self.search_entry.set_position(-1)
+            return True  # Event handled
+        
+        return False  # Let other handlers process
     
     def on_kill_process(self, button):
         """Kill selected process(es)."""
