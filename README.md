@@ -8,8 +8,9 @@ A modern, GTK4-based system process manager for Linux.
 
 - **Process Monitoring**: View all running processes with detailed information
 - **Resource Usage**: Monitor CPU and memory usage per process
+- **GPU Monitoring**: Track GPU usage for Intel, NVIDIA, and AMD GPUs with per-process stats
 - **Process Comparison**: Compare selected processes with visual memory and CPU bars
-- **System Stats**: Real-time memory and swap usage display with visual indicators
+- **System Stats**: Real-time memory, swap, disk, and GPU usage display with visual indicators
 - **Process Control**: End processes with optional confirmation
 - **Filter**: Quickly find processes by name, PID, or user
 - **Sortable Columns**: Sort by Process Name, CPU, Memory, Started, User, Nice, or PID
@@ -115,7 +116,8 @@ process-manager/
 │   ├── window.py            # Main window UI
 │   ├── process_manager.py   # Process management interface
 │   ├── ps_commands.py       # PS command utilities for process info
-│   ├── system_stats.py      # Memory/CPU stats
+│   ├── system_stats.py      # Memory/CPU/Disk stats
+│   ├── gpu_stats.py         # GPU monitoring (Intel, NVIDIA, AMD)
 │   ├── settings.py          # Settings management
 │   └── preferences.py       # Preferences dialog
 ├── data/
@@ -138,7 +140,8 @@ The application follows a modular architecture:
 - **window.py**: Main window with process list, selection panel, and system stats bar
 - **process_manager.py**: High-level process operations (list, kill, renice)
 - **ps_commands.py**: Low-level system commands for process information retrieval
-- **system_stats.py**: System memory, CPU, and load average statistics
+- **system_stats.py**: System memory, disk, and load average statistics
+- **gpu_stats.py**: GPU detection and monitoring for Intel, NVIDIA, and AMD GPUs
 - **settings.py**: Persistent settings management with JSON storage
 - **preferences.py**: User preferences dialog with categorized settings
 
@@ -164,6 +167,7 @@ Settings are stored in `~/.config/process-manager/settings.json` and include:
 | `Backspace` | Open search and clear search term |
 | `Escape` | Close search |
 | `Enter` | Select all filtered processes (in search mode) |
+| `Ctrl+Tab` | Switch between Processes and GPU tabs |
 | `F5` | Refresh process list |
 | `Ctrl+Q` | Quit application |
 | `Ctrl+,` | Open preferences |

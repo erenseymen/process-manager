@@ -386,48 +386,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.settings = app.settings
         self.process_manager = ProcessManager()
         self.system_stats = SystemStats()
-        # #region agent log
-        try:
-            import json
-            import os
-            log_path = '/home/erens/repos/process-manager/.cursor/debug.log'
-            log_dir = os.path.dirname(log_path)
-            if log_dir and not os.path.exists(log_dir):
-                os.makedirs(log_dir, exist_ok=True)
-            with open(log_path, 'a', encoding='utf-8') as f:
-                log_entry = {
-                    'sessionId': 'debug-session',
-                    'runId': 'run1',
-                    'hypothesisId': 'H0',
-                    'location': 'window.py:__init__',
-                    'message': 'Initializing GPUStats',
-                    'data': {},
-                    'timestamp': 0
-                }
-                f.write(json.dumps(log_entry, default=str) + '\n')
-                f.flush()
-        except Exception:
-            pass
-        # #endregion
         self.gpu_stats = GPUStats()
-        # #region agent log
-        try:
-            import json
-            with open('/home/erens/repos/process-manager/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                log_entry = {
-                    'sessionId': 'debug-session',
-                    'runId': 'run1',
-                    'hypothesisId': 'H0',
-                    'location': 'window.py:__init__',
-                    'message': 'GPUStats initialized',
-                    'data': {'gpu_types': self.gpu_stats.gpu_types},
-                    'timestamp': 0
-                }
-                f.write(json.dumps(log_entry, default=str) + '\n')
-                f.flush()
-        except Exception:
-            pass
-        # #endregion
         
         # Current active tab
         self.current_tab = 'processes'  # 'processes' or 'gpu'
