@@ -395,6 +395,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", self.on_search_changed)
+        self.search_entry.connect("activate", self.on_search_activate)
         self.search_bar.set_child(self.search_entry)
         self.search_bar.connect_entry(self.search_entry)
         self.search_bar.set_search_mode(False)  # Hidden by default
@@ -1038,6 +1039,24 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def on_search_changed(self, entry):
         """Handle search text change."""
         self.refresh_processes()
+    
+    def on_search_activate(self, entry):
+        """Handle Enter key in search - select all visible (filtered) processes."""
+        search_text = entry.get_text().strip()
+        if not search_text:
+            return
+        
+        # Select all currently visible processes (they are already filtered by search)
+        selection = self.tree_view.get_selection()
+        for i in range(len(self.list_store)):
+            selection.select_path(Gtk.TreePath.new_from_indices([i]))
+        
+        # Clear search and close search bar
+        entry.set_text("")
+        self.search_bar.set_search_mode(False)
+        
+        # Focus back to tree view
+        self.tree_view.grab_focus()
     
     def select_first_item(self):
         """Select the first item in the process list."""
