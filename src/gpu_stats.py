@@ -295,6 +295,88 @@ class GPUStats:
         
         return processes
     
+    def _parse_intel_gpu_top_json(self, output: str) -> Optional[Dict[str, Any]]:
+        """Parse intel_gpu_top JSON output, handling incomplete arrays.
+        
+        intel_gpu_top outputs a continuous JSON array. When killed mid-output,
+        the array may be incomplete. This method tries to extract the last
+        complete JSON object from the output.
+        
+        Args:
+            output: Raw JSON output from intel_gpu_top
+            
+        Returns:
+            The last complete reading dict, or None if parsing fails
+        """
+        if not output or not output.strip():
+            return None
+        
+        output = output.strip()
+        
+        # First, try to parse as complete JSON
+        try:
+            data = json.loads(output)
+            if isinstance(data, list) and len(data) > 0:
+                return data[-1]
+            elif isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+        
+        # If that fails, try to find and extract the last complete object
+        # The format is: [ {obj1}, {obj2}, ...
+        # Find the last complete object by looking for },\n{ or }] patterns
+        try:
+            # Find the last complete "}" that closes an object
+            # Objects are separated by },\n{
+            last_complete_end = -1
+            brace_count = 0
+            in_string = False
+            escape_next = False
+            
+            for i, char in enumerate(output):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == '\\':
+                    escape_next = True
+                    continue
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                    
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        last_complete_end = i
+            
+            if last_complete_end > 0:
+                # Find the start of this object
+                # Look backwards from last_complete_end to find the matching {
+                obj_start = -1
+                brace_count = 0
+                for i in range(last_complete_end, -1, -1):
+                    char = output[i]
+                    if char == '}':
+                        brace_count += 1
+                    elif char == '{':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            obj_start = i
+                            break
+                
+                if obj_start >= 0:
+                    obj_str = output[obj_start:last_complete_end + 1]
+                    return json.loads(obj_str)
+        except (json.JSONDecodeError, IndexError, ValueError):
+            pass
+        
+        return None
+
     def _get_intel_processes(self) -> Dict[int, Dict[str, Any]]:
         """Get Intel GPU process information using intel_gpu_top.
         
@@ -306,72 +388,68 @@ class GPUStats:
         # Use run_host_command to support Flatpak and handle permissions properly
         # Try intel_gpu_top JSON output first (if available)
         try:
-            cmd_json = ['intel_gpu_top', '-J', '-l', '1', '-s', '500']
-            output_json = run_host_command(cmd_json)
+            # Use timeout command to limit execution, sudo for permissions
+            # -J for JSON, -o - for stdout
+            cmd_json = ['timeout', '2', 'sudo', 'intel_gpu_top', '-J', '-o', '-']
+            output_json = run_host_command(cmd_json, timeout=5)
             
             if output_json and output_json.strip():
-                try:
-                    data = json.loads(output_json)
-                    # Parse JSON structure (format may vary)
-                    if isinstance(data, dict):
-                        # Look for processes in various possible JSON structures
-                        proc_data = {}
-                        if 'processes' in data:
-                            proc_data = data['processes']
-                        elif 'engines' in data and isinstance(data['engines'], dict):
-                            # Sometimes processes are nested under engines
-                            for key, value in data['engines'].items():
-                                if isinstance(value, dict) and 'processes' in value:
-                                    proc_data.update(value['processes'])
-                        elif 'client' in data or 'clients' in data:
-                            # Some versions use 'client' or 'clients' for process info
-                            client_data = data.get('clients', data.get('client', {}))
-                            if isinstance(client_data, dict):
-                                proc_data = client_data
-                            elif isinstance(client_data, list):
-                                # Convert list of clients to dict
-                                for client in client_data:
-                                    if isinstance(client, dict) and 'pid' in client:
-                                        pid = str(client['pid'])
-                                        proc_data[pid] = client
-                        
-                        for pid_str, proc_info in proc_data.items():
+                data = self._parse_intel_gpu_top_json(output_json)
+                
+                if data and isinstance(data, dict) and 'clients' in data:
+                    clients = data['clients']
+                    if isinstance(clients, dict):
+                        for client_id, client_info in clients.items():
+                            if not isinstance(client_info, dict):
+                                continue
+                            
+                            # PID is nested inside client_info as a string
+                            pid_str = client_info.get('pid', '')
+                            if not pid_str:
+                                continue
+                            
                             try:
                                 pid = int(pid_str)
-                                if isinstance(proc_info, dict):
-                                    # Try various key names for GPU usage
-                                    gpu_usage = 0.0
-                                    video_usage = 0.0
-                                    
-                                    # Look for render/RCS usage
-                                    for key in ['gpu', 'GPU', 'render', 'RCS', 'rcs', 'gpu_usage', 'render_usage']:
-                                        if key in proc_info:
-                                            try:
-                                                gpu_usage = float(proc_info[key])
-                                                break
-                                            except (ValueError, TypeError):
-                                                pass
-                                    
-                                    # Look for video/VCS usage
-                                    for key in ['video', 'Video', 'vcs', 'VCS', 'video_usage', 'encoding', 'decoding']:
-                                        if key in proc_info:
-                                            try:
-                                                video_usage = float(proc_info[key])
-                                                break
-                                            except (ValueError, TypeError):
-                                                pass
-                                    
-                                    # Include processes even with 0% usage to make them visible
-                                    processes[pid] = {
-                                        'gpu_usage': max(0.0, gpu_usage),
-                                        'gpu_memory': 0,
-                                        'encoding': max(0.0, video_usage),
-                                        'decoding': max(0.0, video_usage)
-                                    }
-                            except (ValueError, KeyError, TypeError):
+                            except (ValueError, TypeError):
                                 continue
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    pass
+                            
+                            gpu_usage = 0.0
+                            video_usage = 0.0
+                            
+                            # Parse engine-classes (note: hyphen not underscore)
+                            engine_classes = client_info.get('engine-classes', {})
+                            if isinstance(engine_classes, dict):
+                                # Get Render/3D usage for GPU
+                                for engine_name in ['Render/3D', 'Render', 'RCS', 'render']:
+                                    if engine_name in engine_classes:
+                                        engine_data = engine_classes[engine_name]
+                                        if isinstance(engine_data, dict):
+                                            busy = engine_data.get('busy', '0')
+                                            try:
+                                                gpu_usage = float(busy)
+                                            except (ValueError, TypeError):
+                                                pass
+                                        break
+                                
+                                # Get Video usage for encoding/decoding
+                                for engine_name in ['Video', 'VCS', 'video']:
+                                    if engine_name in engine_classes:
+                                        engine_data = engine_classes[engine_name]
+                                        if isinstance(engine_data, dict):
+                                            busy = engine_data.get('busy', '0')
+                                            try:
+                                                video_usage = float(busy)
+                                            except (ValueError, TypeError):
+                                                pass
+                                        break
+                            
+                            # Include all processes (even 0% usage) to show them in GPU tab
+                            processes[pid] = {
+                                'gpu_usage': max(0.0, gpu_usage),
+                                'gpu_memory': 0,
+                                'encoding': max(0.0, video_usage),
+                                'decoding': max(0.0, video_usage)
+                            }
         except Exception:
             pass
         
@@ -619,48 +697,46 @@ for proc_dir in glob.glob('/proc/[0-9]*'):
     def _get_intel_total_stats(self) -> Dict[str, float]:
         """Get total Intel GPU statistics.
         
-        Aggregates per-process stats to get total GPU usage.
+        Uses intel_gpu_top JSON output to get overall GPU engine usage.
         """
         stats = {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
         
-        # Get per-process stats and sum them up
-        processes = self._get_intel_processes()
-        if processes:
-            total_gpu = 0.0
-            total_video = 0.0
-            for proc_info in processes.values():
-                total_gpu += proc_info.get('gpu_usage', 0)
-                total_video += proc_info.get('encoding', 0)
-            
-            # Cap at 100%
-            stats['gpu_usage'] = min(100.0, total_gpu)
-            stats['encoding'] = min(100.0, total_video)
-            stats['decoding'] = min(100.0, total_video)
-            return stats
-        
-        # Fallback: Try intel_gpu_top for overall stats
         try:
-            cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
-            output = run_host_command(cmd)
+            # Use timeout command to limit execution, sudo for permissions
+            cmd = ['timeout', '2', 'sudo', 'intel_gpu_top', '-J', '-o', '-']
+            output = run_host_command(cmd, timeout=5)
             
-            # Parse intel_gpu_top output
-            # Look for summary lines with GPU usage
-            for line in output.split('\n'):
-                line_lower = line.lower()
-                if ('gpu' in line_lower or 'render' in line_lower) and '%' in line:
-                    try:
-                        parts = line.split()
-                        for part in parts:
-                            if '%' in part:
-                                usage = float(part.rstrip('%'))
-                                if 'gpu' in line_lower or 'render' in line_lower:
-                                    stats['gpu_usage'] = max(stats['gpu_usage'], usage)
-                                elif 'video' in line_lower or 'encode' in line_lower:
-                                    stats['encoding'] = max(stats['encoding'], usage)
-                                elif 'decode' in line_lower:
-                                    stats['decoding'] = max(stats['decoding'], usage)
-                    except (ValueError, IndexError):
-                        continue
+            if output and output.strip():
+                data = self._parse_intel_gpu_top_json(output)
+                
+                if data and isinstance(data, dict) and 'engines' in data:
+                    engines = data['engines']
+                    if isinstance(engines, dict):
+                        # Get Render/3D for GPU usage
+                        for engine_name in ['Render/3D', 'Render', 'RCS']:
+                            if engine_name in engines:
+                                engine_data = engines[engine_name]
+                                if isinstance(engine_data, dict):
+                                    busy = engine_data.get('busy', 0)
+                                    try:
+                                        stats['gpu_usage'] = float(busy)
+                                    except (ValueError, TypeError):
+                                        pass
+                                break
+                        
+                        # Get Video for encoding/decoding
+                        for engine_name in ['Video', 'VCS']:
+                            if engine_name in engines:
+                                engine_data = engines[engine_name]
+                                if isinstance(engine_data, dict):
+                                    busy = engine_data.get('busy', 0)
+                                    try:
+                                        video_usage = float(busy)
+                                        stats['encoding'] = video_usage
+                                        stats['decoding'] = video_usage
+                                    except (ValueError, TypeError):
+                                        pass
+                                break
         except Exception:
             pass
         

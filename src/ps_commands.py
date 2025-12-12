@@ -19,7 +19,7 @@ def is_flatpak() -> bool:
     return os.path.exists('/.flatpak-info')
 
 
-def run_host_command(cmd: List[str]) -> str:
+def run_host_command(cmd: List[str], timeout: int = 5) -> str:
     """Run a command on the host system using flatpak-spawn.
     
     When running in Flatpak, uses flatpak-spawn --host to execute
@@ -27,6 +27,7 @@ def run_host_command(cmd: List[str]) -> str:
     
     Args:
         cmd: List of command arguments to execute.
+        timeout: Maximum time in seconds to wait for the command (default: 5).
         
     Returns:
         The stdout output of the command as a string.
@@ -36,8 +37,11 @@ def run_host_command(cmd: List[str]) -> str:
     else:
         full_cmd = cmd
     
-    result = subprocess.run(full_cmd, capture_output=True, text=True)
-    return result.stdout
+    try:
+        result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
+        return result.stdout
+    except subprocess.TimeoutExpired:
+        return ""
 
 
 def get_processes_via_ps(
