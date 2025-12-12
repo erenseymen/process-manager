@@ -59,6 +59,7 @@ def get_processes_via_ps(
         pid, name, cpu, memory, started, user, nice, uid, state
     """
     processes: List[Dict[str, Any]] = []
+    my_pid = os.getpid()
     
     try:
         # Use ps with custom format to get all needed info
@@ -92,6 +93,10 @@ def get_processes_via_ps(
                 uid = int(parts[11])
                 state = parts[12]
                 ppid = int(parts[13])
+                
+                # Filter out our own ps command (spawned by this process)
+                if name == 'ps' and ppid == my_pid:
+                    continue
                 
                 # Filter kernel threads (PPID 2 is kthreadd)
                 if not show_kernel_threads:
