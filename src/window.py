@@ -5,7 +5,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, GLib, Gio, Pango
+from gi.repository import Gtk, Adw, GLib, Gio, Pango, Gdk
 from .process_manager import ProcessManager
 from .system_stats import SystemStats
 
@@ -524,15 +524,26 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def show_context_menu(self, x, y):
         """Show the process context menu."""
-        menu = Gio.Menu()
-        menu.append("End Process", "win.kill")
-        menu.append("Change Priority...", "win.renice")
-        menu.append("Open File Location", "win.open-location")
-        
+        # Create a simple popover menu
         popover = Gtk.PopoverMenu()
-        popover.set_menu_model(menu)
         popover.set_parent(self.tree_view)
-        popover.set_pointing_to(Gdk.Rectangle(x, y, 1, 1) if hasattr(self, 'Gdk') else None)
+        
+        # Create menu model
+        menu = Gio.Menu()
+        
+        # End Process action
+        end_action = Gio.SimpleAction.new("context-kill", None)
+        end_action.connect("activate", lambda a, p: self.on_kill_process(None))
+        self.add_action(end_action)
+        menu.append("End Process", "win.context-kill")
+        
+        popover.set_menu_model(menu)
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        popover.set_pointing_to(rect)
         popover.popup()
     
     def on_close_request(self, window):
