@@ -506,6 +506,11 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         gesture.connect("pressed", self.on_right_click)
         tree_view.add_controller(gesture)
         
+        # Key controller for tree view to handle Space key
+        tree_key_controller = Gtk.EventControllerKey()
+        tree_key_controller.connect("key-pressed", self.on_tree_view_key_pressed)
+        tree_view.add_controller(tree_key_controller)
+        
         # Columns
         columns = [
             ("Process Name", 0, 250),
@@ -1295,6 +1300,19 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             selection = self.tree_view.get_selection()
             selection.select_path(Gtk.TreePath.new_first())
         return False  # Don't repeat
+    
+    def on_tree_view_key_pressed(self, controller, keyval, keycode, state):
+        """Handle key press in tree view - intercept Space before TreeView handles it."""
+        has_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        
+        # Handle Space - toggle Play/Pause auto refresh
+        if keyval == Gdk.KEY_space and not has_ctrl and not has_alt and not has_shift:
+            self.auto_refresh_button.set_active(not self.auto_refresh_button.get_active())
+            return True  # Event handled, don't let TreeView process it
+        
+        return False  # Let TreeView handle other keys
     
     def on_key_pressed(self, controller, keyval, keycode, state):
         """Handle key press for global shortcuts and search."""
