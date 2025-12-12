@@ -391,7 +391,8 @@ class GPUStats:
             # Use timeout command to limit execution
             # -J for JSON, -o - for stdout
             # intel_gpu_top requires root access for per-process stats
-            cmd_json = ['sudo', 'timeout', '1', 'intel_gpu_top', '-J', '-o', '-']
+            # Use sudo -n (non-interactive) to avoid blocking if password is required
+            cmd_json = ['sudo', '-n', 'timeout', '1', 'intel_gpu_top', '-J', '-o', '-']
             output_json = run_host_command(cmd_json, timeout=3)
             
             if output_json and output_json.strip():
@@ -457,7 +458,7 @@ class GPUStats:
         # If JSON format didn't work, try CSV format as fallback
         if not processes:
             try:
-                cmd_csv = ['sudo', 'timeout', '1', 'intel_gpu_top', '-c', '-o', '-']
+                cmd_csv = ['sudo', '-n', 'timeout', '1', 'intel_gpu_top', '-c', '-o', '-']
                 output_csv = run_host_command(cmd_csv, timeout=3)
                 
                 if output_csv and output_csv.strip():
@@ -706,7 +707,8 @@ for proc_dir in glob.glob('/proc/[0-9]*'):
             # Use timeout command to limit execution
             # -J for JSON, -o - for stdout
             # intel_gpu_top requires root access for accurate stats
-            cmd = ['sudo', 'timeout', '1', 'intel_gpu_top', '-J', '-o', '-']
+            # Use sudo -n (non-interactive) to avoid blocking if password is required
+            cmd = ['sudo', '-n', 'timeout', '1', 'intel_gpu_top', '-J', '-o', '-']
             output = run_host_command(cmd, timeout=3)
             
             if output and output.strip():
