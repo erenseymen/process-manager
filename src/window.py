@@ -633,14 +633,24 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         visible_child = stack.get_visible_child_name()
         if visible_child == "gpu":
             self.current_tab = 'gpu'
-            # Start GPU monitoring
+            # Start GPU background monitoring
+            self.gpu_stats.start_background_updates(self._on_gpu_data_updated)
             self.refresh_gpu_processes()
             self.update_system_stats()  # Update stats to show GPU section
         else:
             self.current_tab = 'processes'
+            # Stop GPU background monitoring when not on GPU tab
+            self.gpu_stats.stop_background_updates()
             # Refresh regular processes
             self.refresh_processes()
             self.update_system_stats()  # Update stats to hide GPU section
+    
+    def _on_gpu_data_updated(self):
+        """Callback from GPU background thread when data is updated.
+        
+        Uses GLib.idle_add to safely update UI from background thread.
+        """
+        GLib.idle_add(self._refresh_gpu_ui)
     
     def on_all_user_toggled(self, button):
         """Handle All/User toggle button."""
@@ -2279,6 +2289,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if self.refresh_timeout_id:
             GLib.source_remove(self.refresh_timeout_id)
         
+        # Stop GPU background updates
+        self.gpu_stats.stop_background_updates()
+        
         # Save window size
         width = self.get_width()
         height = self.get_height()
@@ -2286,4 +2299,19 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.settings.set("window_height", height)
         
         return False  # Allow close
+    
+    def _refresh_gpu_ui(self):
+        """Refresh GPU UI elements (called from GLib.idle_add).
+        
+        This is called when background GPU data update completes.
+        Only refreshes if we're still on the GPU tab.
+        """
+        if self.current_tab != 'gpu':
+            return False  # Don't repeat
+        
+        # Update GPU process list and stats
+        self.refresh_gpu_processes()
+        self.update_system_stats()
+        
+        return False  # Don't repeat (one-shot idle callback)
 

@@ -13,13 +13,17 @@ This file contains important context about the codebase for AI assistants.
 - **System Stats Bar** (`ProcessManagerWindow.create_stats_bar()`): Bottom bar with Memory/Swap/Disk sections using circular progress indicators, updated via `update_system_stats()` periodic timer
 - **Tab System**: Uses `Adw.ViewStack` with `SLIDE` transition; tab changes trigger `on_tab_changed()` callback; `ViewSwitcher` in header for visual navigation
 
-### GPU Monitoring Implementation
+### GPU Monitoring Implementation (2025-12-12, performance update)
 - Detection in `GPUStats._detect_gpus()` runs at initialization (checks for nvidia-smi, intel_gpu_top, radeontop)
 - Lazy execution: GPU commands only execute when GPU tab is visible (performance optimization via `on_tab_changed()`)
 - Process list columns dynamically added when GPU tab active: GPU usage, encoding usage, decoding usage (per GPU type)
 - GPU stats bar updates conditionally based on active tab
+- **Background Threading**: GPU data collected in background thread (`start_background_updates()`) to avoid UI blocking
+- **Parallel Execution**: Multiple GPU types (NVIDIA, Intel, AMD) queried in parallel using `ThreadPoolExecutor`
+- **Cache TTL**: 1.8 seconds (aligned with 2s refresh interval)
+- DRM file descriptor scanning removed for performance (intel_gpu_top provides sufficient process detection)
 
-### Intel GPU Per-Process Stats (2025-12-12, updated)
+### Intel GPU Per-Process Stats (2025-12-12)
 - Uses `sudo -n intel_gpu_top -J -o -` with timeout for Intel GPU process monitoring
 - JSON output is an array of readings; parser extracts last complete object
 - Client info structure: `clients -> {client_id} -> {name, pid, engine-classes}`
@@ -27,7 +31,12 @@ This file contains important context about the codebase for AI assistants.
 - `_parse_intel_gpu_top_json()` helper handles incomplete JSON arrays (from timeout kill)
 - `run_host_command()` supports timeout parameter for long-running commands
 - Video engine (`Video`) usage mapped to both encoding and decoding columns
-- **Caching**: `_get_intel_gpu_data_cached()` caches intel_gpu_top results for 500ms to avoid multiple slow calls per refresh cycle (prevents UI freeze on tab switch)
+
+### GPU Tab Async Updates
+- `GPUStats.start_background_updates(callback)`: Starts daemon thread for continuous GPU data collection
+- `GPUStats.stop_background_updates()`: Stops background thread (called on tab switch away or window close)
+- `_on_gpu_data_updated()`: Callback using `GLib.idle_add()` for thread-safe UI updates
+- Background thread updates shared cache; UI reads from cache without blocking
 
 ### Design Patterns
 - Type hints used throughout for improved IDE support

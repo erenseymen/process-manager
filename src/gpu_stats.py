@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import subprocess
-from typing import TYPE_CHECKING, Dict, List, Optional, Any, Tuple
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING, Dict, List, Optional, Any, Callable
 
 from .ps_commands import run_host_command, is_flatpak
 
@@ -16,15 +18,36 @@ if TYPE_CHECKING:
 
 
 class GPUStats:
-    """GPU statistics and monitoring for Intel, NVIDIA, and AMD GPUs."""
+    """GPU statistics and monitoring for Intel, NVIDIA, and AMD GPUs.
+    
+    Uses background threading for non-blocking GPU data collection and
+    parallel execution for multiple GPU types.
+    """
     
     def __init__(self) -> None:
         self.gpu_types: List[str] = []
         self._detect_gpus()
-        # Cache for Intel GPU data to avoid multiple slow calls per refresh cycle
+        
+        # Cached GPU data (updated by background thread)
+        self._gpu_processes_cache: Dict[int, Dict[str, Any]] = {}
+        self._gpu_total_stats_cache: Dict[str, Any] = {
+            'total_gpu_usage': 0.0,
+            'total_encoding': 0.0,
+            'total_decoding': 0.0,
+            'gpu_types': []
+        }
+        self._cache_lock = threading.Lock()
+        self._cache_time: float = 0.0
+        self._cache_ttl: float = 1.8  # 1.8 seconds (slightly less than 2s refresh)
+        
+        # Background update thread control
+        self._update_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._update_callback: Optional[Callable[[], None]] = None
+        
+        # Per-GPU type caches for internal use
         self._intel_cache: Optional[Dict[str, Any]] = None
         self._intel_cache_time: float = 0.0
-        self._intel_cache_ttl: float = 0.5  # 500ms cache
     
     def _detect_gpus(self) -> None:
         """Detect available GPU types."""
@@ -158,39 +181,99 @@ class GPUStats:
                 except Exception:
                     pass
     
-    def get_gpu_processes(self) -> Dict[int, Dict[str, Any]]:
-        """Get GPU usage per process.
+    def start_background_updates(self, callback: Optional[Callable[[], None]] = None) -> None:
+        """Start background thread for GPU data updates.
         
-        Returns:
-            Dictionary mapping PID to GPU usage info:
-            {
-                pid: {
-                    'gpu_usage': float,  # Percentage
-                    'gpu_memory': int,   # Bytes
-                    'encoding': float,   # Percentage (if available)
-                    'decoding': float,   # Percentage (if available)
-                    'gpu_type': str      # 'nvidia', 'intel', or 'amd'
-                }
-            }
+        Args:
+            callback: Optional callback function to invoke when data is updated.
+                     This should be a GLib.idle_add wrapper for UI updates.
         """
-        processes: Dict[int, Dict[str, Any]] = {}
+        if self._update_thread is not None and self._update_thread.is_alive():
+            return  # Already running
         
-        if 'nvidia' in self.gpu_types:
-            nvidia_procs = self._get_nvidia_processes()
-            for pid, info in nvidia_procs.items():
+        self._update_callback = callback
+        self._stop_event.clear()
+        self._update_thread = threading.Thread(
+            target=self._background_update_loop,
+            daemon=True,
+            name="GPUStatsUpdater"
+        )
+        self._update_thread.start()
+    
+    def stop_background_updates(self) -> None:
+        """Stop the background update thread."""
+        self._stop_event.set()
+        if self._update_thread is not None:
+            self._update_thread.join(timeout=2.0)
+            self._update_thread = None
+    
+    def _background_update_loop(self) -> None:
+        """Background thread loop that periodically updates GPU data."""
+        while not self._stop_event.is_set():
+            try:
+                self._update_gpu_data()
+                if self._update_callback:
+                    self._update_callback()
+            except Exception:
+                pass  # Silently ignore errors in background thread
+            
+            # Wait for next update cycle or stop signal
+            self._stop_event.wait(timeout=self._cache_ttl)
+    
+    def _update_gpu_data(self) -> None:
+        """Update GPU data in background thread using parallel execution."""
+        processes: Dict[int, Dict[str, Any]] = {}
+        total_stats = {
+            'total_gpu_usage': 0.0,
+            'total_encoding': 0.0,
+            'total_decoding': 0.0,
+            'gpu_types': self.gpu_types.copy()
+        }
+        
+        if not self.gpu_types:
+            with self._cache_lock:
+                self._gpu_processes_cache = processes
+                self._gpu_total_stats_cache = total_stats
+                self._cache_time = time.time()
+            return
+        
+        # Run GPU queries in parallel for each GPU type
+        with ThreadPoolExecutor(max_workers=len(self.gpu_types)) as executor:
+            futures = {}
+            
+            if 'nvidia' in self.gpu_types:
+                futures['nvidia_procs'] = executor.submit(self._get_nvidia_processes)
+                futures['nvidia_stats'] = executor.submit(self._get_nvidia_total_stats)
+            
+            if 'intel' in self.gpu_types:
+                futures['intel_procs'] = executor.submit(self._get_intel_processes)
+                futures['intel_stats'] = executor.submit(self._get_intel_total_stats)
+            
+            if 'amd' in self.gpu_types:
+                futures['amd_procs'] = executor.submit(self._get_amd_processes)
+                futures['amd_stats'] = executor.submit(self._get_amd_total_stats)
+            
+            # Collect results
+            results = {}
+            for name, future in futures.items():
+                try:
+                    results[name] = future.result(timeout=5)
+                except Exception:
+                    results[name] = {} if 'procs' in name else {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
+        
+        # Merge process data
+        if 'nvidia_procs' in results:
+            for pid, info in results['nvidia_procs'].items():
                 if pid not in processes:
                     processes[pid] = {}
                 processes[pid].update(info)
                 processes[pid]['gpu_type'] = 'nvidia'
         
-        if 'intel' in self.gpu_types:
-            intel_procs = self._get_intel_processes()
-            for pid, info in intel_procs.items():
+        if 'intel_procs' in results:
+            for pid, info in results['intel_procs'].items():
                 if pid not in processes:
                     processes[pid] = {}
-                # Merge with existing or create new
                 if 'gpu_usage' in processes[pid]:
-                    # If multiple GPUs, sum the usage
                     processes[pid]['gpu_usage'] = processes[pid].get('gpu_usage', 0) + info.get('gpu_usage', 0)
                 else:
                     processes[pid]['gpu_usage'] = info.get('gpu_usage', 0)
@@ -198,9 +281,8 @@ class GPUStats:
                 processes[pid]['decoding'] = processes[pid].get('decoding', 0) + info.get('decoding', 0)
                 processes[pid]['gpu_type'] = 'intel'
         
-        if 'amd' in self.gpu_types:
-            amd_procs = self._get_amd_processes()
-            for pid, info in amd_procs.items():
+        if 'amd_procs' in results:
+            for pid, info in results['amd_procs'].items():
                 if pid not in processes:
                     processes[pid] = {}
                 if 'gpu_usage' in processes[pid]:
@@ -209,7 +291,57 @@ class GPUStats:
                     processes[pid]['gpu_usage'] = info.get('gpu_usage', 0)
                 processes[pid]['gpu_type'] = 'amd'
         
-        return processes
+        # Merge total stats
+        for gpu_type in ['nvidia', 'intel', 'amd']:
+            stats_key = f'{gpu_type}_stats'
+            if stats_key in results:
+                stats = results[stats_key]
+                total_stats['total_gpu_usage'] = max(total_stats['total_gpu_usage'], stats.get('gpu_usage', 0))
+                total_stats['total_encoding'] = max(total_stats['total_encoding'], stats.get('encoding', 0))
+                total_stats['total_decoding'] = max(total_stats['total_decoding'], stats.get('decoding', 0))
+        
+        # Update cache with lock
+        with self._cache_lock:
+            self._gpu_processes_cache = processes
+            self._gpu_total_stats_cache = total_stats
+            self._cache_time = time.time()
+    
+    def get_gpu_processes(self) -> Dict[int, Dict[str, Any]]:
+        """Get GPU usage per process from cache.
+        
+        Returns cached data from background thread. If cache is empty or stale,
+        triggers a synchronous update (fallback for first call).
+        
+        Returns:
+            Dictionary mapping PID to GPU usage info.
+        """
+        with self._cache_lock:
+            # If cache is valid, return it
+            if self._cache_time > 0 and (time.time() - self._cache_time) < self._cache_ttl * 2:
+                return self._gpu_processes_cache.copy()
+        
+        # Fallback: synchronous update if no cached data
+        self._update_gpu_data()
+        with self._cache_lock:
+            return self._gpu_processes_cache.copy()
+    
+    def get_total_gpu_stats(self) -> Dict[str, Any]:
+        """Get total GPU usage statistics from cache.
+        
+        Returns cached data from background thread.
+        
+        Returns:
+            Dictionary with total GPU stats.
+        """
+        with self._cache_lock:
+            # If cache is valid, return it
+            if self._cache_time > 0 and (time.time() - self._cache_time) < self._cache_ttl * 2:
+                return self._gpu_total_stats_cache.copy()
+        
+        # Fallback: synchronous update if no cached data
+        self._update_gpu_data()
+        with self._cache_lock:
+            return self._gpu_total_stats_cache.copy()
     
     def _get_nvidia_processes(self) -> Dict[int, Dict[str, Any]]:
         """Get NVIDIA GPU process information."""
@@ -293,8 +425,7 @@ class GPUStats:
             except Exception:
                 pass
                 
-        except Exception as e:
-            # Debug: print error if needed
+        except Exception:
             pass
         
         return processes
@@ -383,11 +514,10 @@ class GPUStats:
 
     def _get_intel_gpu_data_cached(self) -> Optional[Dict[str, Any]]:
         """Get Intel GPU data with caching to avoid multiple slow calls per refresh cycle."""
-        import time
         now = time.time()
         
         # Return cached data if still valid
-        if self._intel_cache is not None and (now - self._intel_cache_time) < self._intel_cache_ttl:
+        if self._intel_cache is not None and (now - self._intel_cache_time) < self._cache_ttl:
             return self._intel_cache
         
         # Fetch fresh data
@@ -399,7 +529,7 @@ class GPUStats:
                 data = self._parse_intel_gpu_top_json(output_json)
                 if data:
                     self._intel_cache = data
-                    self._intel_cache_time = time.time()  # Use current time AFTER command completes
+                    self._intel_cache_time = time.time()
                     return data
         except Exception:
             pass
@@ -409,12 +539,11 @@ class GPUStats:
     def _get_intel_processes(self) -> Dict[int, Dict[str, Any]]:
         """Get Intel GPU process information using intel_gpu_top.
         
-        Uses intel_gpu_top as the only method for detecting Intel GPU processes.
-        Tries multiple output formats to get per-process information.
+        Uses intel_gpu_top JSON output to get per-process GPU information.
+        DRM file descriptor scanning has been removed for performance.
         """
         processes: Dict[int, Dict[str, Any]] = {}
         
-        # Use cached data to avoid slow intel_gpu_top calls
         try:
             data = self._get_intel_gpu_data_cached()
             
@@ -475,64 +604,8 @@ class GPUStats:
         except Exception:
             pass
         
-        # Always check for processes with Intel GPU file descriptors open
-        # This ensures we catch all processes using Intel GPU, even if intel_gpu_top
-        # doesn't provide per-process information or fails
-        try:
-            # Find processes with DRM (Intel GPU) file descriptors
-            # Use a Python script via run_host_command to access /proc from host (works in Flatpak)
-            drm_pids = set()
-            
-            # Use a shell command to find PIDs with DRM file descriptors
-            # This works from Flatpak sandbox by executing on host
-            try:
-                # Create a one-liner Python script to find DRM processes
-                script = """
-import os, glob
-for proc_dir in glob.glob('/proc/[0-9]*'):
-    try:
-        pid = int(os.path.basename(proc_dir))
-        fd_dir = os.path.join(proc_dir, 'fd')
-        if not os.path.isdir(fd_dir):
-            continue
-        for fd in os.listdir(fd_dir):
-            fd_path = os.path.join(fd_dir, fd)
-            try:
-                target = os.readlink(fd_path)
-                if '/dev/dri/' in target:
-                    print(pid)
-                    break
-            except:
-                continue
-    except:
-        continue
-"""
-                # Execute via Python on host
-                cmd = ['python3', '-c', script]
-                output = run_host_command(cmd)
-                
-                # Parse output to get PIDs
-                for line in output.strip().split('\n'):
-                    if line.strip():
-                        try:
-                            pid = int(line.strip())
-                            drm_pids.add(pid)
-                        except ValueError:
-                            continue
-            except Exception:
-                pass
-            
-            # Add found PIDs to processes dict
-            for pid in drm_pids:
-                if pid not in processes:
-                    processes[pid] = {
-                        'gpu_usage': 0.0,
-                        'gpu_memory': 0,
-                        'encoding': 0.0,
-                        'decoding': 0.0
-                    }
-        except Exception:
-            pass
+        # Note: DRM file descriptor scanning removed for performance
+        # intel_gpu_top provides sufficient process detection
         
         return processes
     
@@ -575,45 +648,6 @@ for proc_dir in glob.glob('/proc/[0-9]*'):
         
         return processes
     
-    def get_total_gpu_stats(self) -> Dict[str, Any]:
-        """Get total GPU usage statistics.
-        
-        Returns:
-            Dictionary with total GPU stats:
-            {
-                'total_gpu_usage': float,      # Percentage
-                'total_encoding': float,       # Percentage
-                'total_decoding': float,       # Percentage
-                'gpu_types': List[str]         # Available GPU types
-            }
-        """
-        stats = {
-            'total_gpu_usage': 0.0,
-            'total_encoding': 0.0,
-            'total_decoding': 0.0,
-            'gpu_types': self.gpu_types.copy()
-        }
-        
-        if 'nvidia' in self.gpu_types:
-            nvidia_stats = self._get_nvidia_total_stats()
-            stats['total_gpu_usage'] = max(stats['total_gpu_usage'], nvidia_stats.get('gpu_usage', 0))
-            stats['total_encoding'] = max(stats['total_encoding'], nvidia_stats.get('encoding', 0))
-            stats['total_decoding'] = max(stats['total_decoding'], nvidia_stats.get('decoding', 0))
-        
-        if 'intel' in self.gpu_types:
-            intel_stats = self._get_intel_total_stats()
-            stats['total_gpu_usage'] = max(stats['total_gpu_usage'], intel_stats.get('gpu_usage', 0))
-            stats['total_encoding'] = max(stats['total_encoding'], intel_stats.get('encoding', 0))
-            stats['total_decoding'] = max(stats['total_decoding'], intel_stats.get('decoding', 0))
-        
-        if 'amd' in self.gpu_types:
-            amd_stats = self._get_amd_total_stats()
-            stats['total_gpu_usage'] = max(stats['total_gpu_usage'], amd_stats.get('gpu_usage', 0))
-            stats['total_encoding'] = max(stats['total_encoding'], amd_stats.get('encoding', 0))
-            stats['total_decoding'] = max(stats['total_decoding'], amd_stats.get('decoding', 0))
-        
-        return stats
-    
     def _get_nvidia_total_stats(self) -> Dict[str, float]:
         """Get total NVIDIA GPU statistics."""
         stats = {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
@@ -640,8 +674,7 @@ for proc_dir in glob.glob('/proc/[0-9]*'):
                         stats['decoding'] = max(stats['decoding'], dec_usage)
                     except (ValueError, IndexError):
                         continue
-        except Exception as e:
-            # Debug: could log error here
+        except Exception:
             pass
         
         return stats
@@ -736,4 +769,3 @@ for proc_dir in glob.glob('/proc/[0-9]*'):
             pass
         
         return stats
-
