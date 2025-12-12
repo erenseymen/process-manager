@@ -1653,6 +1653,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         gpu_processes = self.gpu_stats.get_gpu_processes()
         
         # Combine process info with GPU info
+        # Show all processes, but highlight those with GPU usage
         combined_processes = []
         for pid, proc_info in all_process_map.items():
             gpu_info = gpu_processes.get(pid, {})
@@ -1670,9 +1671,14 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 # Try to get basic process info
                 try:
                     proc_details = self.process_manager.get_process_details(pid)
+                    name = 'Unknown'
+                    if proc_details.get('cmdline'):
+                        cmdline_parts = proc_details['cmdline'].split()
+                        if cmdline_parts:
+                            name = cmdline_parts[0].split('/')[-1]  # Get basename
                     combined_processes.append({
                         'pid': pid,
-                        'name': proc_details.get('cmdline', 'Unknown').split()[0] if proc_details.get('cmdline') else 'Unknown',
+                        'name': name,
                         'cpu': 0.0,
                         'memory': 0,
                         'gpu_info': gpu_info
@@ -1695,7 +1701,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             gpu_type = gpu_info.get('gpu_type', '')
             
             if 'nvidia' in self.gpu_stats.gpu_types:
-                if gpu_type == 'nvidia':
+                if gpu_type == 'nvidia' and (gpu_info.get('gpu_usage', 0) > 0 or 
+                                             gpu_info.get('encoding', 0) > 0 or 
+                                             gpu_info.get('decoding', 0) > 0):
                     row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")
@@ -1703,7 +1711,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                     row_data.extend(["", "", ""])
             
             if 'intel' in self.gpu_stats.gpu_types:
-                if gpu_type == 'intel':
+                if gpu_type == 'intel' and (gpu_info.get('gpu_usage', 0) > 0 or 
+                                            gpu_info.get('encoding', 0) > 0 or 
+                                            gpu_info.get('decoding', 0) > 0):
                     row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")
@@ -1711,7 +1721,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                     row_data.extend(["", "", ""])
             
             if 'amd' in self.gpu_stats.gpu_types:
-                if gpu_type == 'amd':
+                if gpu_type == 'amd' and (gpu_info.get('gpu_usage', 0) > 0 or 
+                                          gpu_info.get('encoding', 0) > 0 or 
+                                          gpu_info.get('decoding', 0) > 0):
                     row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")

@@ -149,7 +149,8 @@ class GPUStats:
         processes: Dict[int, Dict[str, Any]] = {}
         
         try:
-            # Use nvidia-smi to get process info
+            # Use nvidia-smi to get process info with GPU utilization
+            # First get processes with memory usage
             cmd = [
                 'nvidia-smi',
                 '--query-compute-apps=pid,used_memory,process_name',
@@ -160,13 +161,13 @@ class GPUStats:
             for line in output.strip().split('\n'):
                 if not line.strip():
                     continue
-                parts = line.split(', ')
+                parts = [p.strip() for p in line.split(',')]
                 if len(parts) >= 3:
                     try:
                         pid = int(parts[0])
-                        memory_mb = int(parts[1])
+                        memory_mb = int(parts[1]) if parts[1] else 0
                         processes[pid] = {
-                            'gpu_usage': 0.0,  # nvidia-smi doesn't provide per-process GPU usage easily
+                            'gpu_usage': 0.0,
                             'gpu_memory': memory_mb * 1024 * 1024,
                             'encoding': 0.0,
                             'decoding': 0.0
@@ -174,33 +175,59 @@ class GPUStats:
                     except (ValueError, IndexError):
                         continue
             
+            # Get per-process GPU utilization using pmon or process info
+            try:
+                # Try to get GPU utilization per process
+                cmd = [
+                    'nvidia-smi',
+                    '--query-compute-apps=pid,sm,memory',
+                    '--format=csv,noheader,nounits'
+                ]
+                output = run_host_command(cmd)
+                for line in output.strip().split('\n'):
+                    if not line.strip():
+                        continue
+                    parts = [p.strip() for p in line.split(',')]
+                    if len(parts) >= 2:
+                        try:
+                            pid = int(parts[0])
+                            sm_usage = float(parts[1]) if parts[1] else 0.0
+                            if pid in processes:
+                                # SM (Streaming Multiprocessor) usage is a good indicator
+                                processes[pid]['gpu_usage'] = sm_usage
+                        except (ValueError, IndexError):
+                            continue
+            except Exception:
+                pass
+            
             # Try to get encoding/decoding info
             try:
                 cmd = [
                     'nvidia-smi',
-                    '--query-encoder-sessions=pid,codec_type,codec_name',
+                    '--query-encoder-sessions=pid,codec_type,codec_name,session_id',
                     '--format=csv,noheader'
                 ]
                 output = run_host_command(cmd)
                 for line in output.strip().split('\n'):
                     if not line.strip():
                         continue
-                    parts = line.split(', ')
+                    parts = [p.strip() for p in line.split(',')]
                     if len(parts) >= 3:
                         try:
                             pid = int(parts[0])
                             codec_type = parts[1].lower()
                             if pid in processes:
-                                if 'encode' in codec_type:
-                                    processes[pid]['encoding'] = 50.0  # Estimate
+                                if 'encode' in codec_type or 'h264' in codec_type or 'hevc' in codec_type:
+                                    processes[pid]['encoding'] = 30.0  # Estimate based on active session
                                 elif 'decode' in codec_type:
-                                    processes[pid]['decoding'] = 50.0  # Estimate
+                                    processes[pid]['decoding'] = 30.0  # Estimate based on active session
                         except (ValueError, IndexError):
                             continue
             except Exception:
                 pass
                 
-        except Exception:
+        except Exception as e:
+            # Debug: print error if needed
             pass
         
         return processes
@@ -210,35 +237,79 @@ class GPUStats:
         processes: Dict[int, Dict[str, Any]] = {}
         
         try:
-            # Use intel_gpu_top or /sys/class/drm
-            # For now, try to read from /sys/class/drm
             import os
-            import glob
             
-            # Try intel_gpu_top first (if available)
+            # Try intel_gpu_top first (if available) - it provides per-process stats
             try:
-                cmd = ['timeout', '1', 'intel_gpu_top', '-l', '1', '-s', '100']
+                cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
                 output = run_host_command(cmd)
-                # Parse intel_gpu_top output (complex, simplified here)
-                # This is a simplified parser - real implementation would need more work
+                
+                # Parse intel_gpu_top output
+                # Format: PID, Name, GPU%, Render%, Blitter%, Video%, VideoEU%
+                current_pid = None
+                for line in output.split('\n'):
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    
+                    # Look for process lines (they start with a PID number)
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        try:
+                            pid = int(parts[0])
+                            # Check if this looks like a process line (PID should be first)
+                            if 0 < pid < 1000000:  # Reasonable PID range
+                                # Try to find GPU usage percentage
+                                gpu_usage = 0.0
+                                enc_usage = 0.0
+                                dec_usage = 0.0
+                                
+                                for part in parts[1:]:
+                                    if '%' in part:
+                                        try:
+                                            val = float(part.rstrip('%'))
+                                            # First percentage is usually GPU usage
+                                            if gpu_usage == 0.0:
+                                                gpu_usage = val
+                                            # Look for Video% which indicates encoding/decoding
+                                            elif 'Video' in line or 'video' in line.lower():
+                                                if enc_usage == 0.0:
+                                                    enc_usage = val
+                                                else:
+                                                    dec_usage = val
+                                        except ValueError:
+                                            pass
+                                
+                                if gpu_usage > 0 or enc_usage > 0 or dec_usage > 0:
+                                    processes[pid] = {
+                                        'gpu_usage': gpu_usage,
+                                        'gpu_memory': 0,  # intel_gpu_top doesn't provide memory
+                                        'encoding': enc_usage,
+                                        'decoding': dec_usage
+                                    }
+                        except (ValueError, IndexError):
+                            continue
             except Exception:
                 pass
             
-            # Fallback: try to get info from /sys/class/drm
-            # Intel GPU doesn't provide easy per-process stats, so we'll estimate
-            # based on video codec usage
+            # Alternative: Try to read from /sys/class/drm (if accessible)
+            # This is limited but can provide some info
             try:
-                # Check for video codec usage in /sys/class/drm
+                import glob
                 for card_path in glob.glob('/sys/class/drm/card*/device'):
                     if os.path.exists(card_path):
-                        # Check if Intel GPU
                         vendor_path = os.path.join(card_path, 'vendor')
                         if os.path.exists(vendor_path):
-                            with open(vendor_path, 'r') as f:
-                                if f.read().strip() == '0x8086':
-                                    # Intel GPU found, but per-process stats are limited
-                                    # We'll return empty for now and rely on system-level stats
-                                    pass
+                            try:
+                                with open(vendor_path, 'r') as f:
+                                    vendor_id = f.read().strip()
+                                    if vendor_id == '0x8086':
+                                        # Intel GPU found
+                                        # Per-process stats from sysfs are very limited
+                                        # We rely on intel_gpu_top for that
+                                        pass
+                            except (OSError, IOError):
+                                pass
             except Exception:
                 pass
                 
@@ -252,9 +323,34 @@ class GPUStats:
         processes: Dict[int, Dict[str, Any]] = {}
         
         try:
-            # AMD doesn't provide easy per-process stats
-            # radeontop shows overall GPU usage but not per-process
-            # We'll return empty for now
+            # Try rocm-smi or radeontop for AMD GPU stats
+            # rocm-smi provides better per-process info if available
+            try:
+                cmd = ['rocm-smi', '--showpid', '--showuse', '--csv']
+                output = run_host_command(cmd)
+                # Parse rocm-smi output
+                for line in output.strip().split('\n'):
+                    if not line.strip() or 'GPU' in line or 'PID' in line:
+                        continue
+                    parts = [p.strip() for p in line.split(',')]
+                    if len(parts) >= 3:
+                        try:
+                            pid = int(parts[0])
+                            gpu_usage = float(parts[1].rstrip('%')) if '%' in parts[1] else 0.0
+                            if pid > 0 and gpu_usage > 0:
+                                processes[pid] = {
+                                    'gpu_usage': gpu_usage,
+                                    'gpu_memory': 0,
+                                    'encoding': 0.0,
+                                    'decoding': 0.0
+                                }
+                        except (ValueError, IndexError):
+                            continue
+            except Exception:
+                pass
+            
+            # Fallback: radeontop doesn't provide per-process stats easily
+            # We'll rely on system-level stats for AMD
             pass
         except Exception:
             pass
@@ -315,18 +411,19 @@ class GPUStats:
             for line in output.strip().split('\n'):
                 if not line.strip():
                     continue
-                parts = line.split(', ')
+                parts = [p.strip() for p in line.split(',')]
                 if len(parts) >= 3:
                     try:
-                        gpu_usage = float(parts[0])
-                        enc_usage = float(parts[1])
-                        dec_usage = float(parts[2])
+                        gpu_usage = float(parts[0]) if parts[0] else 0.0
+                        enc_usage = float(parts[1]) if parts[1] else 0.0
+                        dec_usage = float(parts[2]) if parts[2] else 0.0
                         stats['gpu_usage'] = max(stats['gpu_usage'], gpu_usage)
                         stats['encoding'] = max(stats['encoding'], enc_usage)
                         stats['decoding'] = max(stats['decoding'], dec_usage)
                     except (ValueError, IndexError):
                         continue
-        except Exception:
+        except Exception as e:
+            # Debug: could log error here
             pass
         
         return stats
@@ -336,32 +433,37 @@ class GPUStats:
         stats = {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
         
         try:
-            # Try intel_gpu_top
-            cmd = ['timeout', '1', 'intel_gpu_top', '-l', '1', '-s', '100', '-o', '-']
+            # Try intel_gpu_top for overall stats
+            cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
             output = run_host_command(cmd)
             
-            # Parse intel_gpu_top output (simplified)
-            # Real implementation would need proper parsing
+            # Parse intel_gpu_top output
+            # Look for summary lines with GPU usage
             for line in output.split('\n'):
-                if 'GPU' in line and '%' in line:
+                line_lower = line.lower()
+                if ('gpu' in line_lower or 'render' in line_lower) and '%' in line:
                     try:
-                        # Extract GPU usage percentage
                         parts = line.split()
-                        for i, part in enumerate(parts):
+                        for part in parts:
                             if '%' in part:
                                 usage = float(part.rstrip('%'))
-                                stats['gpu_usage'] = max(stats['gpu_usage'], usage)
-                                break
+                                if 'gpu' in line_lower or 'render' in line_lower:
+                                    stats['gpu_usage'] = max(stats['gpu_usage'], usage)
+                                elif 'video' in line_lower or 'encode' in line_lower:
+                                    stats['encoding'] = max(stats['encoding'], usage)
+                                elif 'decode' in line_lower:
+                                    stats['decoding'] = max(stats['decoding'], usage)
                     except (ValueError, IndexError):
                         continue
         except Exception:
-            # Fallback: try /sys/class/drm
+            # Fallback: try /sys/class/drm for basic info
             try:
                 import os
                 import glob
                 for card_path in glob.glob('/sys/class/drm/card*/device'):
                     if os.path.exists(os.path.join(card_path, 'vendor')):
                         # Intel GPU stats from sysfs are limited
+                        # We can't get usage percentages from sysfs easily
                         pass
             except Exception:
                 pass
@@ -373,22 +475,43 @@ class GPUStats:
         stats = {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
         
         try:
-            # Try radeontop
-            cmd = ['timeout', '1', 'radeontop', '-l', '1', '-d', '-']
-            output = run_host_command(cmd)
-            
-            # Parse radeontop output (simplified)
-            for line in output.split('\n'):
-                if 'gpu' in line.lower() and '%' in line:
-                    try:
-                        parts = line.split()
-                        for part in parts:
-                            if '%' in part:
-                                usage = float(part.rstrip('%'))
-                                stats['gpu_usage'] = max(stats['gpu_usage'], usage)
-                                break
-                    except (ValueError, IndexError):
+            # Try rocm-smi first (better for newer AMD GPUs)
+            try:
+                cmd = ['rocm-smi', '--showuse', '--csv']
+                output = run_host_command(cmd)
+                for line in output.strip().split('\n'):
+                    if not line.strip() or 'GPU' in line:
                         continue
+                    parts = [p.strip() for p in line.split(',')]
+                    if len(parts) >= 2:
+                        try:
+                            gpu_usage = float(parts[1].rstrip('%')) if '%' in parts[1] else 0.0
+                            stats['gpu_usage'] = max(stats['gpu_usage'], gpu_usage)
+                        except (ValueError, IndexError):
+                            continue
+            except Exception:
+                pass
+            
+            # Fallback: Try radeontop
+            try:
+                cmd = ['timeout', '2', 'radeontop', '-l', '1', '-d', '-']
+                output = run_host_command(cmd)
+                
+                # Parse radeontop output
+                for line in output.split('\n'):
+                    line_lower = line.lower()
+                    if ('gpu' in line_lower or 'vram' in line_lower) and '%' in line:
+                        try:
+                            parts = line.split()
+                            for part in parts:
+                                if '%' in part:
+                                    usage = float(part.rstrip('%'))
+                                    stats['gpu_usage'] = max(stats['gpu_usage'], usage)
+                                    break
+                        except (ValueError, IndexError):
+                            continue
+            except Exception:
+                pass
         except Exception:
             pass
         
