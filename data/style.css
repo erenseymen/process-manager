@@ -13,17 +13,36 @@
 
 /* Selection panel */
 .selection-panel {
-  background-color: @view_bg_color;
-  border-left: 1px solid @borders;
+  background-color: alpha(@accent_bg_color, 0.1);
 }
 
-.selection-panel-header {
-  background-color: alpha(@headerbar_bg_color, 0.3);
-}
-
-.selection-panel-header .heading {
+.selection-panel .heading {
   font-weight: bold;
-  font-size: 1em;
+  font-size: 0.9em;
+}
+
+/* Selection chips */
+.selection-chip {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+  border-radius: 16px;
+  padding: 4px 8px 4px 12px;
+  margin: 2px;
+}
+
+.selection-chip label {
+  font-size: 0.85em;
+}
+
+.selection-chip .chip-remove {
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0;
+  margin-left: 4px;
+}
+
+.selection-chip .chip-remove:hover {
+  background-color: alpha(@accent_fg_color, 0.2);
 }
 
 .toolbar {

@@ -408,15 +408,11 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         key_controller.connect("key-pressed", self.on_key_pressed)
         self.add_controller(key_controller)
         
-        # Horizontal paned for process list and selection panel
-        self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        self.paned.set_vexpand(True)
-        self.paned.set_shrink_start_child(False)
-        self.paned.set_shrink_end_child(False)
-        self.paned.set_resize_start_child(True)
-        self.paned.set_resize_end_child(False)
+        # Selection panel (above process list)
+        self.selection_panel = self.create_selection_panel()
+        main_box.append(self.selection_panel)
         
-        # Process list (left side)
+        # Process list
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
@@ -424,13 +420,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         self.process_view = self.create_process_view()
         scrolled.set_child(self.process_view)
-        self.paned.set_start_child(scrolled)
-        
-        # Selection panel (right side)
-        self.selection_panel = self.create_selection_panel()
-        self.paned.set_end_child(self.selection_panel)
-        
-        main_box.append(self.paned)
+        main_box.append(scrolled)
         
         # System stats bar
         self.stats_bar = self.create_stats_bar()
@@ -565,88 +555,81 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def create_selection_panel(self):
         """Create the selection panel showing selected processes grouped by name."""
-        # Main container
+        # Main container - horizontal layout above process list
         panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        panel_box.set_size_request(250, -1)
         panel_box.add_css_class("selection-panel")
         
-        # Header with title and clear button
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        header_box.set_margin_start(12)
-        header_box.set_margin_end(8)
-        header_box.set_margin_top(8)
-        header_box.set_margin_bottom(8)
-        header_box.add_css_class("selection-panel-header")
+        # Content box with horizontal scroll
+        content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        content_box.set_margin_start(12)
+        content_box.set_margin_end(8)
+        content_box.set_margin_top(6)
+        content_box.set_margin_bottom(6)
         
-        self.selection_title = Gtk.Label(label="Selected (0)")
+        # Title label
+        self.selection_title = Gtk.Label(label="Selected:")
         self.selection_title.add_css_class("heading")
-        self.selection_title.set_halign(Gtk.Align.START)
-        self.selection_title.set_hexpand(True)
-        header_box.append(self.selection_title)
+        self.selection_title.set_valign(Gtk.Align.CENTER)
+        content_box.append(self.selection_title)
+        
+        # Scrolled window for chips (horizontal)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        scrolled.set_min_content_height(36)
+        
+        # FlowBox for selection chips
+        self.selection_flow = Gtk.FlowBox()
+        self.selection_flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.selection_flow.set_homogeneous(False)
+        self.selection_flow.set_max_children_per_line(100)
+        self.selection_flow.set_min_children_per_line(1)
+        self.selection_flow.set_row_spacing(4)
+        self.selection_flow.set_column_spacing(6)
+        self.selection_flow.set_valign(Gtk.Align.CENTER)
+        scrolled.set_child(self.selection_flow)
+        
+        content_box.append(scrolled)
         
         # Clear all button
-        clear_button = Gtk.Button()
-        clear_button.set_icon_name("edit-clear-all-symbolic")
-        clear_button.set_tooltip_text("Clear Selection")
-        clear_button.add_css_class("flat")
-        clear_button.connect("clicked", self.on_clear_selection)
-        header_box.append(clear_button)
+        self.clear_button = Gtk.Button()
+        self.clear_button.set_icon_name("edit-clear-all-symbolic")
+        self.clear_button.set_tooltip_text("Clear Selection")
+        self.clear_button.add_css_class("flat")
+        self.clear_button.set_valign(Gtk.Align.CENTER)
+        self.clear_button.connect("clicked", self.on_clear_selection)
+        content_box.append(self.clear_button)
         
-        panel_box.append(header_box)
+        panel_box.append(content_box)
         
-        # Separator
+        # Bottom separator
         sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         panel_box.append(sep)
         
-        # Scrolled window for the selection list
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        
-        # ListBox for grouped processes
-        self.selection_list = Gtk.ListBox()
-        self.selection_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.selection_list.add_css_class("boxed-list")
-        self.selection_list.set_margin_start(8)
-        self.selection_list.set_margin_end(8)
-        self.selection_list.set_margin_top(8)
-        self.selection_list.set_margin_bottom(8)
-        scrolled.set_child(self.selection_list)
-        
-        panel_box.append(scrolled)
-        
-        # Placeholder for when no selection
-        self.selection_placeholder = Gtk.Label(label="No processes selected")
-        self.selection_placeholder.add_css_class("dim-label")
-        self.selection_placeholder.set_vexpand(True)
-        self.selection_placeholder.set_valign(Gtk.Align.CENTER)
+        # Initially hidden
+        panel_box.set_visible(False)
         
         return panel_box
     
     def update_selection_panel(self):
         """Update the selection panel with current selection grouped by process name."""
-        # Update title
         count = len(self.selected_pids)
-        self.selection_title.set_label(f"Selected ({count})")
         
-        # Clear existing rows
-        while True:
-            row = self.selection_list.get_row_at_index(0)
-            if row is None:
-                break
-            self.selection_list.remove(row)
+        # Show/hide panel based on selection
+        self.selection_panel.set_visible(count > 0)
         
-        if not self.selected_pids:
-            # Show placeholder message
-            placeholder_row = Gtk.ListBoxRow()
-            placeholder_row.set_selectable(False)
-            placeholder_label = Gtk.Label(label="No processes selected\nUse Ctrl+Click to select multiple")
-            placeholder_label.add_css_class("dim-label")
-            placeholder_label.set_margin_top(20)
-            placeholder_label.set_margin_bottom(20)
-            placeholder_row.set_child(placeholder_label)
-            self.selection_list.append(placeholder_row)
+        if count == 0:
             return
+        
+        # Update title
+        self.selection_title.set_label(f"Selected ({count}):")
+        
+        # Clear existing chips
+        while True:
+            child = self.selection_flow.get_child_at_index(0)
+            if child is None:
+                break
+            self.selection_flow.remove(child)
         
         # Group processes by name
         groups = {}
@@ -656,49 +639,56 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 groups[name] = []
             groups[name].append(pid)
         
-        # Sort groups by name
+        # Create chips for each group
         for name in sorted(groups.keys()):
             pids = sorted(groups[name])
-            
-            if len(pids) == 1:
-                # Single process - simple row
-                row = Adw.ActionRow()
-                row.set_title(name)
-                row.set_subtitle(f"PID: {pids[0]}")
-                
-                # Remove button
-                remove_btn = Gtk.Button()
-                remove_btn.set_icon_name("list-remove-symbolic")
-                remove_btn.set_tooltip_text("Remove from selection")
-                remove_btn.add_css_class("flat")
-                remove_btn.set_valign(Gtk.Align.CENTER)
-                remove_btn.connect("clicked", lambda b, p=pids[0]: self.remove_from_selection(p))
-                row.add_suffix(remove_btn)
-                
-                self.selection_list.append(row)
-            else:
-                # Multiple processes - expander row
-                expander = Adw.ExpanderRow()
-                expander.set_title(name)
-                expander.set_subtitle(f"{len(pids)} processes")
-                
-                # Add individual PID rows
-                for pid in pids:
-                    pid_row = Adw.ActionRow()
-                    pid_row.set_title(f"PID: {pid}")
-                    
-                    # Remove button for individual PID
-                    remove_btn = Gtk.Button()
-                    remove_btn.set_icon_name("list-remove-symbolic")
-                    remove_btn.set_tooltip_text("Remove from selection")
-                    remove_btn.add_css_class("flat")
-                    remove_btn.set_valign(Gtk.Align.CENTER)
-                    remove_btn.connect("clicked", lambda b, p=pid: self.remove_from_selection(p))
-                    pid_row.add_suffix(remove_btn)
-                    
-                    expander.add_row(pid_row)
-                
-                self.selection_list.append(expander)
+            chip = self.create_selection_chip(name, pids)
+            self.selection_flow.append(chip)
+    
+    def create_selection_chip(self, name, pids):
+        """Create a chip widget for a selected process group."""
+        chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        chip_box.add_css_class("selection-chip")
+        
+        # Process name and count
+        if len(pids) == 1:
+            label_text = f"{name}"
+        else:
+            label_text = f"{name} ({len(pids)})"
+        
+        label = Gtk.Label(label=label_text)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_max_width_chars(25)
+        chip_box.append(label)
+        
+        # Remove button
+        remove_btn = Gtk.Button()
+        remove_btn.set_icon_name("window-close-symbolic")
+        remove_btn.add_css_class("flat")
+        remove_btn.add_css_class("circular")
+        remove_btn.add_css_class("chip-remove")
+        remove_btn.set_valign(Gtk.Align.CENTER)
+        # Remove all PIDs in this group when clicked
+        remove_btn.connect("clicked", lambda b: self.remove_group_from_selection(pids))
+        chip_box.append(remove_btn)
+        
+        return chip_box
+    
+    def remove_group_from_selection(self, pids):
+        """Remove a group of processes from selection."""
+        for pid in pids:
+            if pid in self.selected_pids:
+                del self.selected_pids[pid]
+        self.update_selection_panel()
+        # Update tree view selection
+        self._updating_selection = True
+        selection = self.tree_view.get_selection()
+        for pid in pids:
+            for i, row in enumerate(self.list_store):
+                if row[6] == pid:
+                    selection.unselect_path(Gtk.TreePath.new_from_indices([i]))
+                    break
+        self._updating_selection = False
     
     def on_clear_selection(self, button):
         """Clear all selections."""
