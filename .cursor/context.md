@@ -20,11 +20,10 @@ This file contains important context about the codebase for AI assistants.
 - GPU stats bar updates conditionally based on active tab
 
 ### Intel GPU Per-Process Stats (2025-12-12)
-- Uses `/proc/[pid]/fdinfo/*` to read DRM engine usage (Linux 5.19+ kernels)
-- Reads `drm-engine-render:` and `drm-engine-video:` entries (nanoseconds cumulative)
-- Calculates delta between readings to compute percentage usage
-- Cache stores previous readings with timestamps in `_intel_fdinfo_cache`
-- Falls back to `intel_gpu_top` if fdinfo method fails
+- Uses `intel_gpu_top` as the primary dependency for Intel GPU process monitoring
+- Supports JSON output format (`-J` flag) and CSV format (`-c` flag) as fallback
+- Tries JSON format first, then CSV if JSON parsing fails
+- Includes processes even with 0% usage to make them visible in the GPU tab
 - Video engine usage shown as encoding/decoding (Intel HW encoder/decoder)
 
 ### Design Patterns
