@@ -114,6 +114,11 @@ class TerminationDialog(Adw.Window):
         
         # Connect close request
         self.connect("close-request", self.on_close_request)
+        
+        # Add key controller for keyboard shortcuts
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self.on_key_pressed)
+        self.add_controller(key_controller)
     
     def create_process_row(self, pid, name):
         """Create a row for a process in the list."""
@@ -285,6 +290,25 @@ class TerminationDialog(Adw.Window):
     def on_close(self, button):
         """Handle close button click."""
         self.cleanup_and_close()
+    
+    def on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle key press events."""
+        # Escape: close/cancel the dialog
+        if keyval == Gdk.KEY_Escape:
+            self.cleanup_and_close()
+            return True  # Event handled
+        
+        # Enter: confirm or close
+        if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
+            if not self.confirmed:
+                # Not confirmed yet - trigger confirmation
+                self.on_confirm(self.confirm_button)
+            elif self.close_button.get_visible():
+                # Already confirmed and close button is visible - close the dialog
+                self.on_close(self.close_button)
+            return True  # Event handled
+        
+        return False  # Let other handlers process
     
     def on_close_request(self, window):
         """Handle window close request."""
