@@ -322,6 +322,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         show_all = self.all_user_button.get_active()
         my_processes = not show_all
         
+        # Get kernel threads setting
+        show_kernel_threads = self.settings.get("show_kernel_threads", False)
+        
         # Get search text
         search_text = self.search_entry.get_text().lower()
         
@@ -329,7 +332,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         processes = self.process_manager.get_processes(
             show_all=show_all,
             my_processes=my_processes,
-            active_only=False
+            active_only=False,
+            show_kernel_threads=show_kernel_threads
         )
         
         # Filter by search

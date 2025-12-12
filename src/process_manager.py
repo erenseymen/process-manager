@@ -46,27 +46,27 @@ class ProcessManager:
         self._proc_path = get_host_proc_path()
         self._is_flatpak = is_flatpak()
     
-    def get_processes(self, show_all=True, my_processes=False, active_only=False):
+    def get_processes(self, show_all=True, my_processes=False, active_only=False, show_kernel_threads=False):
         """Get list of all processes with their information."""
         processes = []
         current_uid = os.getuid()
         
         # Use ps command via flatpak-spawn for Flatpak, direct /proc access otherwise
         if self._is_flatpak:
-            processes = self._get_processes_via_ps(current_uid, my_processes, active_only)
+            processes = self._get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_threads)
         else:
-            processes = self._get_processes_via_proc(current_uid, my_processes, active_only)
+            processes = self._get_processes_via_proc(current_uid, my_processes, active_only, show_kernel_threads)
         
         return processes
     
-    def _get_processes_via_ps(self, current_uid, my_processes, active_only):
+    def _get_processes_via_ps(self, current_uid, my_processes, active_only, show_kernel_threads):
         """Get processes using ps command via flatpak-spawn --host."""
         processes = []
         
         try:
             # Use ps with custom format to get all needed info
-            # pid, comm, %cpu, rss (in KB), lstart, user, nice, uid, state
-            cmd = ['ps', '-eo', 'pid,comm,%cpu,rss,lstart,user,nice,uid,state', '--no-headers']
+            # pid, comm, %cpu, rss (in KB), lstart, user, nice, uid, state, ppid
+            cmd = ['ps', '-eo', 'pid,comm,%cpu,rss,lstart,user,nice,uid,state,ppid', '--no-headers']
             output = run_host_command(cmd)
             
             for line in output.strip().split('\n'):
@@ -75,9 +75,9 @@ class ProcessManager:
                 
                 try:
                     # Parse ps output - lstart has spaces so we need careful parsing
-                    # Format: PID COMMAND %CPU RSS DAY MON DD HH:MM:SS YYYY USER NI UID STATE
+                    # Format: PID COMMAND %CPU RSS DAY MON DD HH:MM:SS YYYY USER NI UID STATE PPID
                     parts = line.split()
-                    if len(parts) < 13:
+                    if len(parts) < 14:
                         continue
                     
                     pid = int(parts[0])
@@ -94,6 +94,12 @@ class ProcessManager:
                     nice = int(parts[10])
                     uid = int(parts[11])
                     state = parts[12]
+                    ppid = int(parts[13])
+                    
+                    # Filter kernel threads (PPID 2 is kthreadd, or check if executable doesn't exist)
+                    if not show_kernel_threads:
+                        if self._is_kernel_thread(pid, ppid):
+                            continue
                     
                     # Apply filters
                     if my_processes and uid != current_uid:
@@ -122,7 +128,7 @@ class ProcessManager:
         
         return processes
     
-    def _get_processes_via_proc(self, current_uid, my_processes, active_only):
+    def _get_processes_via_proc(self, current_uid, my_processes, active_only, show_kernel_threads):
         """Get processes by reading /proc directly."""
         processes = []
         total_cpu_time = self._get_total_cpu_time()
@@ -137,6 +143,11 @@ class ProcessManager:
                 
                 if proc_info is None:
                     continue
+                
+                # Filter kernel threads
+                if not show_kernel_threads:
+                    if self._is_kernel_thread(pid, proc_info.get('ppid')):
+                        continue
                 
                 # Apply filters
                 if my_processes and proc_info['uid'] != current_uid:
@@ -173,6 +184,7 @@ class ProcessManager:
             # Fields after (comm): state, ppid, pgrp, session, tty_nr, tpgid, flags,
             # minflt, cminflt, majflt, cmajflt, utime, stime, cutime, cstime, priority, nice
             state = stat_parts[0]
+            ppid = int(stat_parts[1])
             utime = int(stat_parts[11])
             stime = int(stat_parts[12])
             nice = int(stat_parts[16])
@@ -230,7 +242,8 @@ class ProcessManager:
                 'user': username,
                 'nice': nice,
                 'uid': uid,
-                'state': state
+                'state': state,
+                'ppid': ppid
             }
             
         except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError, IndexError):
@@ -280,6 +293,57 @@ class ProcessManager:
         except:
             pass
         return 0
+    
+    def _is_kernel_thread(self, pid, ppid=None):
+        """Check if a process is a kernel thread.
+        
+        Kernel threads can be identified by:
+        1. PPID of 2 (kthreadd is the parent of all kernel threads) - most reliable
+        2. No executable path (/proc/PID/exe doesn't exist or can't be read)
+        """
+        # First check PPID - this is the most reliable indicator
+        # PPID 2 is kthreadd, which is the parent of all kernel threads
+        if ppid is not None:
+            if ppid == 2:
+                return True
+        
+        # If PPID wasn't provided, try to get it from /proc
+        if ppid is None:
+            try:
+                proc_path = self._proc_path / str(pid)
+                stat_path = proc_path / 'stat'
+                with open(stat_path, 'r') as f:
+                    stat_line = f.read()
+                first_paren = stat_line.index('(')
+                last_paren = stat_line.rindex(')')
+                stat_parts = stat_line[last_paren + 2:].split()
+                if len(stat_parts) > 1:
+                    ppid = int(stat_parts[1])
+                    if ppid == 2:
+                        return True
+            except:
+                pass
+        
+        # Fallback: Check if executable path exists (kernel threads don't have one)
+        # This helps catch kernel threads that might not have PPID 2
+        try:
+            proc_path = self._proc_path / str(pid)
+            exe_path = proc_path / 'exe'
+            # Try to readlink - kernel threads will fail
+            try:
+                os.readlink(exe_path)
+                # If we can read the link, it's not a kernel thread
+                return False
+            except (OSError, FileNotFoundError):
+                # No executable path - likely a kernel thread
+                # But only return True if we also confirmed PPID is 2
+                # to avoid false positives
+                return ppid == 2 if ppid is not None else False
+        except:
+            # If we can't access /proc at all, fall back to PPID check only
+            return ppid == 2 if ppid is not None else False
+        
+        return False
     
     def kill_process(self, pid, signal_num=signal.SIGTERM):
         """Send a signal to a process."""
