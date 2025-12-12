@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 import json
+import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Any
 
 from .ps_commands import run_host_command, is_flatpak
@@ -12,13 +13,71 @@ from .ps_commands import run_host_command, is_flatpak
 if TYPE_CHECKING:
     pass
 
+# #region agent log
+DEBUG_LOG_PATH = '/home/erens/repos/process-manager/.cursor/debug.log'
+def _debug_log(location, message, data, hypothesis_id=None):
+    try:
+        import json as json_lib
+        import time
+        # Try multiple log paths (workspace and /tmp as fallback)
+        log_paths = [
+            DEBUG_LOG_PATH,
+            '/tmp/gpu_debug.log',
+            os.path.expanduser('~/gpu_debug.log')
+        ]
+        log_entry = {
+            'sessionId': 'debug-session',
+            'runId': 'run1',
+            'hypothesisId': hypothesis_id,
+            'location': location,
+            'message': message,
+            'data': data,
+            'timestamp': int(time.time() * 1000)
+        }
+        log_written = False
+        for log_path in log_paths:
+            try:
+                # Ensure directory exists
+                log_dir = os.path.dirname(log_path)
+                if log_dir and not os.path.exists(log_dir):
+                    os.makedirs(log_dir, exist_ok=True)
+                with open(log_path, 'a', encoding='utf-8') as f:
+                    f.write(json_lib.dumps(log_entry, default=str) + '\n')
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except:
+                        pass
+                log_written = True
+                break
+            except Exception:
+                continue
+        if not log_written:
+            # Last resort: print to stderr
+            import sys
+            print(f"DEBUG [{location}]: {message}: {data}", file=sys.stderr, flush=True)
+    except Exception as e:
+        # Last resort: print to stderr
+        try:
+            import sys
+            print(f"DEBUG ERROR [{location}]: {message}: {str(e)}", file=sys.stderr, flush=True)
+        except:
+            pass
+# #endregion
+
 
 class GPUStats:
     """GPU statistics and monitoring for Intel, NVIDIA, and AMD GPUs."""
     
     def __init__(self) -> None:
         self.gpu_types: List[str] = []
+        # #region agent log
+        _debug_log('gpu_stats.py:__init__', 'GPUStats initialization started', {}, 'H1')
+        # #endregion
         self._detect_gpus()
+        # #region agent log
+        _debug_log('gpu_stats.py:__init__', 'GPUStats initialization completed', {'gpu_types': self.gpu_types}, 'H1')
+        # #endregion
     
     def _detect_gpus(self) -> None:
         """Detect available GPU types."""
@@ -51,23 +110,48 @@ class GPUStats:
                 pass
         
         # Check for Intel GPU
+        # #region agent log
+        _debug_log('gpu_stats.py:_detect_gpus', 'Checking for Intel GPU', {}, 'H1')
+        # #endregion
         try:
             # Try direct call first
+            # #region agent log
+            _debug_log('gpu_stats.py:_detect_gpus', 'Trying direct intel_gpu_top call', {}, 'H2')
+            # #endregion
             result = subprocess.run(
                 ['intel_gpu_top', '-l'],
                 capture_output=True,
                 text=True,
                 timeout=2
             )
+            # #region agent log
+            _debug_log('gpu_stats.py:_detect_gpus', 'Direct intel_gpu_top result', {'returncode': result.returncode, 'stdout_length': len(result.stdout), 'stderr_length': len(result.stderr)}, 'H2')
+            # #endregion
             if result.returncode == 0:
                 self.gpu_types.append('intel')
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                # #region agent log
+                _debug_log('gpu_stats.py:_detect_gpus', 'Intel GPU detected via direct call', {}, 'H2')
+                # #endregion
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+            # #region agent log
+            _debug_log('gpu_stats.py:_detect_gpus', 'Direct intel_gpu_top failed', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H2')
+            # #endregion
             # Try via flatpak-spawn
             try:
+                # #region agent log
+                _debug_log('gpu_stats.py:_detect_gpus', 'Trying intel_gpu_top via flatpak-spawn', {}, 'H2')
+                # #endregion
                 result = run_host_command(['intel_gpu_top', '-l'])
+                # #region agent log
+                _debug_log('gpu_stats.py:_detect_gpus', 'flatpak-spawn intel_gpu_top result', {'result_length': len(result) if result else 0, 'result_preview': result[:100] if result else None}, 'H2')
+                # #endregion
                 if result or True:  # If command exists, assume Intel GPU
                     # Verify by checking /sys/class/drm
                     import os
+                    # #region agent log
+                    _debug_log('gpu_stats.py:_detect_gpus', 'Checking /sys/class/drm for Intel vendor', {}, 'H1')
+                    # #endregion
+                    vendor_found = False
                     if any(os.path.exists(f'/sys/class/drm/card{i}/device/vendor') 
                            for i in range(10)):
                         # Check if it's Intel (vendor ID 0x8086)
@@ -77,12 +161,29 @@ class GPUStats:
                                 try:
                                     with open(vendor_path, 'r') as f:
                                         vendor_id = f.read().strip()
+                                        # #region agent log
+                                        _debug_log('gpu_stats.py:_detect_gpus', 'Found vendor ID', {'card': i, 'vendor_id': vendor_id}, 'H1')
+                                        # #endregion
                                         if vendor_id == '0x8086':
                                             self.gpu_types.append('intel')
+                                            vendor_found = True
+                                            # #region agent log
+                                            _debug_log('gpu_stats.py:_detect_gpus', 'Intel GPU detected via vendor ID', {}, 'H1')
+                                            # #endregion
                                             break
-                                except (OSError, IOError):
+                                except (OSError, IOError) as e:
+                                    # #region agent log
+                                    _debug_log('gpu_stats.py:_detect_gpus', 'Error reading vendor file', {'path': vendor_path, 'error': str(e)}, 'H1')
+                                    # #endregion
                                     pass
-            except Exception:
+                    if not vendor_found:
+                        # #region agent log
+                        _debug_log('gpu_stats.py:_detect_gpus', 'No Intel vendor found in /sys/class/drm', {}, 'H1')
+                        # #endregion
+            except Exception as e:
+                # #region agent log
+                _debug_log('gpu_stats.py:_detect_gpus', 'flatpak-spawn intel_gpu_top exception', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H2')
+                # #endregion
                 # Also check /sys/class/drm for Intel GPU (fallback)
                 try:
                     import os
@@ -168,6 +269,10 @@ class GPUStats:
         """
         processes: Dict[int, Dict[str, Any]] = {}
         
+        # #region agent log
+        _debug_log('gpu_stats.py:get_gpu_processes', 'Starting GPU process collection', {'gpu_types': self.gpu_types}, 'H4')
+        # #endregion
+        
         if 'nvidia' in self.gpu_types:
             nvidia_procs = self._get_nvidia_processes()
             for pid, info in nvidia_procs.items():
@@ -177,7 +282,13 @@ class GPUStats:
                 processes[pid]['gpu_type'] = 'nvidia'
         
         if 'intel' in self.gpu_types:
+            # #region agent log
+            _debug_log('gpu_stats.py:get_gpu_processes', 'Intel GPU detected, getting processes', {}, 'H4')
+            # #endregion
             intel_procs = self._get_intel_processes()
+            # #region agent log
+            _debug_log('gpu_stats.py:get_gpu_processes', 'Intel processes retrieved', {'intel_proc_count': len(intel_procs), 'intel_procs': list(intel_procs.keys())[:10]}, 'H4')
+            # #endregion
             for pid, info in intel_procs.items():
                 if pid not in processes:
                     processes[pid] = {}
@@ -202,6 +313,9 @@ class GPUStats:
                     processes[pid]['gpu_usage'] = info.get('gpu_usage', 0)
                 processes[pid]['gpu_type'] = 'amd'
         
+        # #region agent log
+        _debug_log('gpu_stats.py:get_gpu_processes', 'GPU process collection completed', {'total_processes': len(processes), 'process_pids': list(processes.keys())[:10]}, 'H4')
+        # #endregion
         return processes
     
     def _get_nvidia_processes(self) -> Dict[int, Dict[str, Any]]:
@@ -296,17 +410,28 @@ class GPUStats:
         """Get Intel GPU process information."""
         processes: Dict[int, Dict[str, Any]] = {}
         
+        # #region agent log
+        _debug_log('gpu_stats.py:_get_intel_processes', 'Starting Intel GPU process data collection', {}, 'H3')
+        # #endregion
+        
         try:
             import os
             
             # Try intel_gpu_top first (if available) - it provides per-process stats
             try:
                 cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
+                # #region agent log
+                _debug_log('gpu_stats.py:_get_intel_processes', 'Running intel_gpu_top command', {'cmd': cmd}, 'H3')
+                # #endregion
                 output = run_host_command(cmd)
+                # #region agent log
+                _debug_log('gpu_stats.py:_get_intel_processes', 'intel_gpu_top output received', {'output_length': len(output), 'output_preview': output[:500] if output else None, 'line_count': len(output.split('\n'))}, 'H3')
+                # #endregion
                 
                 # Parse intel_gpu_top output
                 # Format: PID, Name, GPU%, Render%, Blitter%, Video%, VideoEU%
                 current_pid = None
+                parsed_count = 0
                 for line in output.split('\n'):
                     line = line.strip()
                     if not line or line.startswith('#'):
@@ -347,9 +472,22 @@ class GPUStats:
                                         'encoding': enc_usage,
                                         'decoding': dec_usage
                                     }
-                        except (ValueError, IndexError):
+                                    parsed_count += 1
+                                    # #region agent log
+                                    _debug_log('gpu_stats.py:_get_intel_processes', 'Parsed Intel GPU process', {'pid': pid, 'gpu_usage': gpu_usage, 'encoding': enc_usage, 'decoding': dec_usage, 'line': line[:100]}, 'H3')
+                                    # #endregion
+                        except (ValueError, IndexError) as e:
+                            # #region agent log
+                            _debug_log('gpu_stats.py:_get_intel_processes', 'Parse error for line', {'line': line[:100], 'error': str(e)}, 'H3')
+                            # #endregion
                             continue
-            except Exception:
+                # #region agent log
+                _debug_log('gpu_stats.py:_get_intel_processes', 'Intel GPU process parsing completed', {'parsed_count': parsed_count, 'total_processes': len(processes)}, 'H3')
+                # #endregion
+            except Exception as e:
+                # #region agent log
+                _debug_log('gpu_stats.py:_get_intel_processes', 'intel_gpu_top command failed', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H3')
+                # #endregion
                 pass
             
             # Alternative: Try to read from /sys/class/drm (if accessible)
@@ -492,10 +630,20 @@ class GPUStats:
         """Get total Intel GPU statistics."""
         stats = {'gpu_usage': 0.0, 'encoding': 0.0, 'decoding': 0.0}
         
+        # #region agent log
+        _debug_log('gpu_stats.py:_get_intel_total_stats', 'Starting Intel total stats collection', {}, 'H5')
+        # #endregion
+        
         try:
             # Try intel_gpu_top for overall stats
             cmd = ['timeout', '2', 'intel_gpu_top', '-l', '1', '-s', '500', '-o', '-']
+            # #region agent log
+            _debug_log('gpu_stats.py:_get_intel_total_stats', 'Running intel_gpu_top for total stats', {'cmd': cmd}, 'H5')
+            # #endregion
             output = run_host_command(cmd)
+            # #region agent log
+            _debug_log('gpu_stats.py:_get_intel_total_stats', 'intel_gpu_top total stats output', {'output_length': len(output), 'output_preview': output[:500] if output else None}, 'H5')
+            # #endregion
             
             # Parse intel_gpu_top output
             # Look for summary lines with GPU usage
@@ -515,7 +663,13 @@ class GPUStats:
                                     stats['decoding'] = max(stats['decoding'], usage)
                     except (ValueError, IndexError):
                         continue
-        except Exception:
+            # #region agent log
+            _debug_log('gpu_stats.py:_get_intel_total_stats', 'Intel total stats parsed', stats, 'H5')
+            # #endregion
+        except Exception as e:
+            # #region agent log
+            _debug_log('gpu_stats.py:_get_intel_total_stats', 'intel_gpu_top total stats failed', {'error_type': type(e).__name__, 'error_msg': str(e)}, 'H5')
+            # #endregion
             # Fallback: try /sys/class/drm for basic info
             try:
                 import os

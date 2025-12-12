@@ -13,7 +13,6 @@
         "--filesystem=host:ro",
         "--filesystem=/sys:ro",
         "--filesystem=/sys/class/drm:ro",
-        "--filesystem=/dev/dri:ro",
         "--talk-name=org.freedesktop.Flatpak",
         "--talk-name=org.freedesktop.HostName1"
     ],

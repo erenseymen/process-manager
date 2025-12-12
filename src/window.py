@@ -386,7 +386,48 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.settings = app.settings
         self.process_manager = ProcessManager()
         self.system_stats = SystemStats()
+        # #region agent log
+        try:
+            import json
+            import os
+            log_path = '/home/erens/repos/process-manager/.cursor/debug.log'
+            log_dir = os.path.dirname(log_path)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+            with open(log_path, 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'H0',
+                    'location': 'window.py:__init__',
+                    'message': 'Initializing GPUStats',
+                    'data': {},
+                    'timestamp': 0
+                }
+                f.write(json.dumps(log_entry, default=str) + '\n')
+                f.flush()
+        except Exception:
+            pass
+        # #endregion
         self.gpu_stats = GPUStats()
+        # #region agent log
+        try:
+            import json
+            with open('/home/erens/repos/process-manager/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'H0',
+                    'location': 'window.py:__init__',
+                    'message': 'GPUStats initialized',
+                    'data': {'gpu_types': self.gpu_stats.gpu_types},
+                    'timestamp': 0
+                }
+                f.write(json.dumps(log_entry, default=str) + '\n')
+                f.flush()
+        except Exception:
+            pass
+        # #endregion
         
         # Current active tab
         self.current_tab = 'processes'  # 'processes' or 'gpu'
@@ -1651,6 +1692,24 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Get GPU process data (only when on GPU tab)
         gpu_processes = self.gpu_stats.get_gpu_processes()
+        
+        # #region agent log
+        try:
+            import json
+            with open('/home/erens/repos/process-manager/.cursor/debug.log', 'a') as f:
+                log_entry = {
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'H6',
+                    'location': 'window.py:refresh_gpu_processes',
+                    'message': 'GPU processes retrieved for UI',
+                    'data': {'gpu_process_count': len(gpu_processes), 'gpu_types': self.gpu_stats.gpu_types, 'sample_pids': list(gpu_processes.keys())[:5]},
+                    'timestamp': 0
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion
         
         # Combine process info with GPU info
         # Show all processes, but highlight those with GPU usage
