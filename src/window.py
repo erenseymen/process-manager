@@ -1061,6 +1061,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def on_key_pressed(self, controller, keyval, keycode, state):
         """Handle key press to open search bar and type."""
+        # Handle Escape key to close search bar
+        if keyval == Gdk.KEY_Escape:
+            if self.search_bar.get_search_mode():
+                self.search_entry.set_text("")
+                self.search_bar.set_search_mode(False)
+                self.tree_view.grab_focus()
+                return True  # Event handled
+            return False
+        
         # If search bar is visible and focused, let it handle keys
         if self.search_bar.get_search_mode() and self.search_entry.has_focus():
             return False
