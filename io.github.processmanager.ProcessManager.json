@@ -9,9 +9,14 @@
         "--socket=fallback-x11",
         "--socket=wayland",
         "--device=dri",
+        "--device=all",
         "--filesystem=host:ro",
         "--filesystem=/sys:ro",
-        "--talk-name=org.freedesktop.Flatpak"
+        "--filesystem=/sys/class/drm:ro",
+        "--filesystem=/dev/dri:ro",
+        "--filesystem=/dev/nvidia*:ro",
+        "--talk-name=org.freedesktop.Flatpak",
+        "--talk-name=org.freedesktop.HostName1"
     ],
     "cleanup": [
         "/include",

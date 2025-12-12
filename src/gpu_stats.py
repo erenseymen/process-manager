@@ -26,19 +26,33 @@ class GPUStats:
         
         # Check for NVIDIA GPU
         try:
+            # Try via host command first (for Flatpak)
+            cmd = ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader']
             result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=2
             )
             if result.returncode == 0 and result.stdout.strip():
                 self.gpu_types.append('nvidia')
+            else:
+                # Try via flatpak-spawn if direct call failed
+                result = run_host_command(cmd)
+                if result.strip():
+                    self.gpu_types.append('nvidia')
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            pass
+            # Try via flatpak-spawn as fallback
+            try:
+                result = run_host_command(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'])
+                if result.strip():
+                    self.gpu_types.append('nvidia')
+            except Exception:
+                pass
         
         # Check for Intel GPU
         try:
+            # Try direct call first
             result = subprocess.run(
                 ['intel_gpu_top', '-l'],
                 capture_output=True,
@@ -48,25 +62,50 @@ class GPUStats:
             if result.returncode == 0:
                 self.gpu_types.append('intel')
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            # Also check /sys/class/drm for Intel GPU
+            # Try via flatpak-spawn
             try:
-                import os
-                if any(os.path.exists(f'/sys/class/drm/card{i}/device/vendor') 
-                       for i in range(10)):
-                    # Check if it's Intel (vendor ID 0x8086)
-                    for i in range(10):
-                        vendor_path = f'/sys/class/drm/card{i}/device/vendor'
-                        if os.path.exists(vendor_path):
-                            with open(vendor_path, 'r') as f:
-                                vendor_id = f.read().strip()
-                                if vendor_id == '0x8086':
-                                    self.gpu_types.append('intel')
-                                    break
-            except (OSError, IOError):
-                pass
+                result = run_host_command(['intel_gpu_top', '-l'])
+                if result or True:  # If command exists, assume Intel GPU
+                    # Verify by checking /sys/class/drm
+                    import os
+                    if any(os.path.exists(f'/sys/class/drm/card{i}/device/vendor') 
+                           for i in range(10)):
+                        # Check if it's Intel (vendor ID 0x8086)
+                        for i in range(10):
+                            vendor_path = f'/sys/class/drm/card{i}/device/vendor'
+                            if os.path.exists(vendor_path):
+                                try:
+                                    with open(vendor_path, 'r') as f:
+                                        vendor_id = f.read().strip()
+                                        if vendor_id == '0x8086':
+                                            self.gpu_types.append('intel')
+                                            break
+                                except (OSError, IOError):
+                                    pass
+            except Exception:
+                # Also check /sys/class/drm for Intel GPU (fallback)
+                try:
+                    import os
+                    if any(os.path.exists(f'/sys/class/drm/card{i}/device/vendor') 
+                           for i in range(10)):
+                        # Check if it's Intel (vendor ID 0x8086)
+                        for i in range(10):
+                            vendor_path = f'/sys/class/drm/card{i}/device/vendor'
+                            if os.path.exists(vendor_path):
+                                try:
+                                    with open(vendor_path, 'r') as f:
+                                        vendor_id = f.read().strip()
+                                        if vendor_id == '0x8086':
+                                            self.gpu_types.append('intel')
+                                            break
+                                except (OSError, IOError):
+                                    pass
+                except Exception:
+                    pass
         
         # Check for AMD GPU
         try:
+            # Try direct call first
             result = subprocess.run(
                 ['radeontop', '-l', '1', '-d', '-'],
                 capture_output=True,
@@ -76,20 +115,41 @@ class GPUStats:
             if result.returncode == 0:
                 self.gpu_types.append('amd')
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            # Also check /sys/class/drm for AMD GPU
+            # Try via flatpak-spawn
             try:
+                result = run_host_command(['radeontop', '-l', '1', '-d', '-'])
+                # If command exists, verify by checking /sys/class/drm
                 import os
                 for i in range(10):
                     vendor_path = f'/sys/class/drm/card{i}/device/vendor'
                     if os.path.exists(vendor_path):
-                        with open(vendor_path, 'r') as f:
-                            vendor_id = f.read().strip()
-                            # AMD vendor IDs: 0x1002 (AMD), 0x1022 (AMD/ATI)
-                            if vendor_id in ['0x1002', '0x1022']:
-                                self.gpu_types.append('amd')
-                                break
-            except (OSError, IOError):
-                pass
+                        try:
+                            with open(vendor_path, 'r') as f:
+                                vendor_id = f.read().strip()
+                                # AMD vendor IDs: 0x1002 (AMD), 0x1022 (AMD/ATI)
+                                if vendor_id in ['0x1002', '0x1022']:
+                                    self.gpu_types.append('amd')
+                                    break
+                        except (OSError, IOError):
+                            pass
+            except Exception:
+                # Also check /sys/class/drm for AMD GPU (fallback)
+                try:
+                    import os
+                    for i in range(10):
+                        vendor_path = f'/sys/class/drm/card{i}/device/vendor'
+                        if os.path.exists(vendor_path):
+                            try:
+                                with open(vendor_path, 'r') as f:
+                                    vendor_id = f.read().strip()
+                                    # AMD vendor IDs: 0x1002 (AMD), 0x1022 (AMD/ATI)
+                                    if vendor_id in ['0x1002', '0x1022']:
+                                        self.gpu_types.append('amd')
+                                        break
+                            except (OSError, IOError):
+                                pass
+                except Exception:
+                    pass
     
     def get_gpu_processes(self) -> Dict[int, Dict[str, Any]]:
         """Get GPU usage per process.
