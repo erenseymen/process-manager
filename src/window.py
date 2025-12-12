@@ -801,11 +801,24 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             if pid in self.selected_pids:
                 del self.selected_pids[pid]
         self.update_selection_panel()
+        # Update tree view selection
+        self._updating_selection = True
+        selection = self.tree_view.get_selection()
+        for pid in pids:
+            for i, row in enumerate(self.list_store):
+                if row[6] == pid:
+                    selection.unselect_path(Gtk.TreePath.new_from_indices([i]))
+                    break
+        self._updating_selection = False
     
     def on_clear_selection(self, button):
         """Clear all selections."""
         self.selected_pids.clear()
         self.update_selection_panel()
+        # Update tree view selection
+        self._updating_selection = True
+        self.tree_view.get_selection().unselect_all()
+        self._updating_selection = False
         self.refresh_processes()
     
     def remove_from_selection(self, pid):
@@ -813,6 +826,14 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if pid in self.selected_pids:
             del self.selected_pids[pid]
         self.update_selection_panel()
+        # Update tree view selection
+        self._updating_selection = True
+        selection = self.tree_view.get_selection()
+        for i, row in enumerate(self.list_store):
+            if row[6] == pid:
+                selection.unselect_path(Gtk.TreePath.new_from_indices([i]))
+                break
+        self._updating_selection = False
     
     def create_high_usage_panel(self):
         """Create the high usage processes panel shown above swap/memory stats."""
@@ -1108,11 +1129,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         model, paths = selection.get_selected_rows()
         
-        # If no selection, nothing to do
-        if not paths:
-            return
-        
-        # Get currently visible selected PIDs and add them to persistent selection
+        # Get currently visible selected PIDs
+        visible_selected = set()
         for path in paths:
             iter = model.get_iter(path)
             pid = model.get_value(iter, 6)  # PID column
@@ -1120,6 +1138,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             cpu_str = model.get_value(iter, 1)  # e.g., "5.2%"
             mem_str = model.get_value(iter, 2)  # e.g., "150.5 MiB"
             user = model.get_value(iter, 4)
+            visible_selected.add(pid)
             # Store process info for selected PIDs
             self.selected_pids[pid] = {
                 'name': name,
@@ -1128,13 +1147,22 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 'mem_str': mem_str
             }
         
+        # Get all visible PIDs
+        visible_pids = set()
+        for row in self.list_store:
+            visible_pids.add(row[6])
+        
+        # Remove deselected PIDs (only those that are visible and not selected)
+        pids_to_remove = []
+        for pid in self.selected_pids:
+            if pid in visible_pids and pid not in visible_selected:
+                pids_to_remove.append(pid)
+        
+        for pid in pids_to_remove:
+            del self.selected_pids[pid]
+        
         # Update the selection panel
         self.update_selection_panel()
-        
-        # Clear the TreeView selection (items are now shown in selection panel)
-        self._updating_selection = True
-        selection.unselect_all()
-        self._updating_selection = False
     
     def refresh_processes(self):
         """Refresh the process list."""
@@ -1212,6 +1240,14 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 str(proc['nice']),
                 proc['pid']
             ])
+        
+        # Restore selection by PID from persistent selection
+        selection = self.tree_view.get_selection()
+        if self.selected_pids:
+            for i, row in enumerate(self.list_store):
+                if row[6] in self.selected_pids:  # PID column
+                    selection.select_path(Gtk.TreePath.new_from_indices([i]))
+        
         self._updating_selection = False
         
         # Update the selection panel (in case processes were cleaned up)
