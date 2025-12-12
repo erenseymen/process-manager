@@ -540,6 +540,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Create the GPU tab content."""
         tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         
+        # Selection panel for GPU tab (shared with processes tab)
+        self.gpu_selection_panel = self.create_selection_panel_for_tab('gpu')
+        tab_box.append(self.gpu_selection_panel)
+        
         # GPU process list
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -551,6 +555,74 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         tab_box.append(scrolled)
         
         return tab_box
+    
+    def create_selection_panel_for_tab(self, tab_name):
+        """Create a selection panel for a specific tab (reuses the same selected_pids)."""
+        # Main container
+        panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel_box.add_css_class("selection-panel")
+        
+        # Header row with title and clear button
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_margin_start(12)
+        header_box.set_margin_end(8)
+        header_box.set_margin_top(6)
+        header_box.set_margin_bottom(4)
+        
+        # Title label
+        title_label = Gtk.Label(label="Selected:")
+        title_label.add_css_class("heading")
+        title_label.set_halign(Gtk.Align.START)
+        title_label.set_hexpand(True)
+        header_box.append(title_label)
+        
+        # End Process button
+        end_btn = Gtk.Button()
+        end_btn.set_icon_name("process-stop-symbolic")
+        end_btn.set_tooltip_text("End Selected Processes")
+        end_btn.add_css_class("destructive-action")
+        end_btn.connect("clicked", self.on_kill_process)
+        header_box.append(end_btn)
+        
+        # Clear all button
+        clear_btn = Gtk.Button()
+        clear_btn.set_icon_name("edit-clear-all-symbolic")
+        clear_btn.set_tooltip_text("Clear Selection")
+        clear_btn.add_css_class("flat")
+        clear_btn.connect("clicked", self.on_clear_selection)
+        header_box.append(clear_btn)
+        
+        panel_box.append(header_box)
+        
+        # Scrolled window for process comparison list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_max_content_height(200)
+        scrolled.set_propagate_natural_height(True)
+        
+        # ListBox for vertical process comparison
+        selection_list = Gtk.ListBox()
+        selection_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        selection_list.add_css_class("selection-comparison-list")
+        selection_list.set_margin_start(12)
+        selection_list.set_margin_end(12)
+        selection_list.set_margin_bottom(8)
+        scrolled.set_child(selection_list)
+        panel_box.append(scrolled)
+        
+        # Bottom separator
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        panel_box.append(sep)
+        
+        # Initially hidden
+        panel_box.set_visible(False)
+        
+        # Store references based on tab
+        if tab_name == 'gpu':
+            self.gpu_selection_title = title_label
+            self.gpu_selection_list = selection_list
+        
+        return panel_box
     
     def on_tab_changed(self, stack, param):
         """Handle tab change."""
@@ -732,6 +804,17 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Selection
         selection = tree_view.get_selection()
         selection.set_mode(Gtk.SelectionMode.MULTIPLE)
+        selection.connect("changed", self.on_gpu_selection_changed)
+        
+        # Right-click context menu
+        gesture = Gtk.GestureClick(button=3)
+        gesture.connect("pressed", self.on_gpu_right_click)
+        tree_view.add_controller(gesture)
+        
+        # Key controller for tree view to handle Space key
+        tree_key_controller = Gtk.EventControllerKey()
+        tree_key_controller.connect("key-pressed", self.on_tree_view_key_pressed)
+        tree_view.add_controller(tree_key_controller)
         
         # Columns
         all_columns = base_columns + gpu_columns
@@ -926,8 +1009,25 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Update the selection panel with current selection grouped by process name with comparison bars."""
         count = len(self.selected_pids)
         
+        # Get current tab's panel and list components
+        if self.current_tab == 'gpu':
+            panel = self.gpu_selection_panel
+            title_label = self.gpu_selection_title
+            selection_list = self.gpu_selection_list
+        else:
+            panel = self.selection_panel
+            title_label = self.selection_title
+            selection_list = self.selection_list
+        
         # Show/hide panel based on selection
-        self.selection_panel.set_visible(count > 0)
+        panel.set_visible(count > 0)
+        
+        # Also update the other tab's panel visibility
+        if self.current_tab == 'gpu':
+            self.selection_panel.set_visible(False)
+        else:
+            if hasattr(self, 'gpu_selection_panel'):
+                self.gpu_selection_panel.set_visible(False)
         
         if count == 0:
             return
@@ -939,16 +1039,16 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                        for info in self.selected_pids.values())
         
         # Update title with totals
-        self.selection_title.set_label(
+        title_label.set_label(
             f"Selected ({count}): CPU {total_cpu:.1f}% | Mem {self.format_memory(total_mem)}"
         )
         
         # Clear existing rows
         while True:
-            child = self.selection_list.get_row_at_index(0)
+            child = selection_list.get_row_at_index(0)
             if child is None:
                 break
-            self.selection_list.remove(child)
+            selection_list.remove(child)
         
         # Group processes by name
         groups = {}
@@ -971,7 +1071,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         for name, group_info in sorted_groups:
             pids = sorted(group_info['pids'])
             row = self.create_comparison_row(name, pids, group_info['cpu'], group_info['mem'], max_cpu, max_mem)
-            self.selection_list.append(row)
+            selection_list.append(row)
     
     def create_comparison_row(self, name, pids, total_cpu, total_mem, max_cpu, max_mem):
         """Create a comparison row widget for a selected process group with memory/CPU bars."""
@@ -1099,12 +1199,13 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             if pid in self.selected_pids:
                 del self.selected_pids[pid]
         self.update_selection_panel()
-        # Update tree view selection
+        # Update tree view selection for current tab
         self._updating_selection = True
-        selection = self.tree_view.get_selection()
+        tree_view, list_store, pid_col = self._get_current_tree_view_info()
+        selection = tree_view.get_selection()
         for pid in pids:
-            for i, row in enumerate(self.list_store):
-                if row[6] == pid:
+            for i, row in enumerate(list_store):
+                if row[pid_col] == pid:
                     selection.unselect_path(Gtk.TreePath.new_from_indices([i]))
                     break
         self._updating_selection = False
@@ -1113,11 +1214,27 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Clear all selections."""
         self.selected_pids.clear()
         self.update_selection_panel()
-        # Update tree view selection
+        # Update tree view selection for both tabs
         self._updating_selection = True
         self.tree_view.get_selection().unselect_all()
+        if hasattr(self, 'gpu_tree_view'):
+            self.gpu_tree_view.get_selection().unselect_all()
         self._updating_selection = False
-        self.refresh_processes()
+        self._refresh_current_tab()
+    
+    def _get_current_tree_view_info(self):
+        """Get current tab's tree view, list store, and PID column index."""
+        if self.current_tab == 'gpu':
+            return self.gpu_tree_view, self.gpu_list_store, 3
+        else:
+            return self.tree_view, self.list_store, 6
+    
+    def _refresh_current_tab(self):
+        """Refresh the current tab's process list."""
+        if self.current_tab == 'gpu':
+            self.refresh_gpu_processes()
+        else:
+            self.refresh_processes()
     
     def remove_from_selection(self, pid):
         """Remove a single process from selection."""
@@ -1497,7 +1614,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     gpu_decoding_percent = 0
     
     def on_selection_changed(self, selection):
-        """Handle selection changes - sync with persistent selected_pids."""
+        """Handle selection changes for processes tab - sync with persistent selected_pids."""
+        self._handle_selection_changed(selection, self.list_store, pid_column=6, user_column=4)
+    
+    def on_gpu_selection_changed(self, selection):
+        """Handle selection changes for GPU tab - sync with persistent selected_pids."""
+        self._handle_selection_changed(selection, self.gpu_list_store, pid_column=3, user_column=None)
+    
+    def _handle_selection_changed(self, selection, list_store, pid_column, user_column):
+        """Common handler for selection changes in both tabs."""
         if self._updating_selection:
             return
         
@@ -1507,11 +1632,11 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         visible_selected = set()
         for path in paths:
             iter = model.get_iter(path)
-            pid = model.get_value(iter, 6)  # PID column
+            pid = model.get_value(iter, pid_column)
             name = model.get_value(iter, 0)
             cpu_str = model.get_value(iter, 1)  # e.g., "5.2%"
             mem_str = model.get_value(iter, 2)  # e.g., "150.5 MiB"
-            user = model.get_value(iter, 4)
+            user = model.get_value(iter, user_column) if user_column is not None else ""
             visible_selected.add(pid)
             # Store process info for selected PIDs
             self.selected_pids[pid] = {
@@ -1523,8 +1648,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Get all visible PIDs
         visible_pids = set()
-        for row in self.list_store:
-            visible_pids.add(row[6])
+        for row in list_store:
+            visible_pids.add(row[pid_column])
         
         # Remove deselected PIDs (only those that are visible and not selected)
         pids_to_remove = []
@@ -1535,7 +1660,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         for pid in pids_to_remove:
             del self.selected_pids[pid]
         
-        # Update the selection panel
+        # Update the selection panel for current tab
         self.update_selection_panel()
     
     def refresh_processes(self):
@@ -1650,7 +1775,20 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             active_only=False,
             show_kernel_threads=False
         )
+        all_pids = {p['pid'] for p in all_processes}
         all_process_map = {p['pid']: p for p in all_processes}
+        
+        # Clean up ended processes from selection and update info for existing ones
+        pids_to_remove = [pid for pid in self.selected_pids if pid not in all_pids]
+        for pid in pids_to_remove:
+            del self.selected_pids[pid]
+        
+        # Update cpu/memory info for selected processes
+        for pid in self.selected_pids:
+            if pid in all_process_map:
+                proc = all_process_map[pid]
+                self.selected_pids[pid]['cpu_str'] = f"{proc['cpu']:.1f}%"
+                self.selected_pids[pid]['mem_str'] = self.format_memory(proc['memory'])
         
         # Get GPU process data (only when on GPU tab)
         gpu_processes = self.gpu_stats.get_gpu_processes()
@@ -1691,12 +1829,31 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Filter by search text
         if search_text:
+            # When searching, hide already selected items from results
             combined_processes = [
                 p for p in combined_processes
-                if search_text in p['name'].lower() or search_text in str(p['pid'])
+                if (search_text in p['name'].lower() or search_text in str(p['pid']))
+                and p['pid'] not in self.selected_pids
             ]
+        else:
+            # Get PIDs of combined processes
+            combined_pids = {p['pid'] for p in combined_processes}
+            
+            # Add selected processes that are not in the list but still exist
+            for pid in self.selected_pids:
+                if pid not in combined_pids and pid in all_pids:
+                    proc = all_process_map[pid]
+                    gpu_info = gpu_processes.get(pid, {})
+                    combined_processes.append({
+                        'pid': pid,
+                        'name': proc['name'],
+                        'cpu': proc['cpu'],
+                        'memory': proc['memory'],
+                        'gpu_info': gpu_info
+                    })
         
         # Update GPU list store
+        self._updating_selection = True
         self.gpu_list_store.clear()
         for proc in combined_processes:
             row_data = [
@@ -1740,6 +1897,18 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                     row_data.extend(["", "", ""])
             
             self.gpu_list_store.append(row_data)
+        
+        # Restore selection by PID from persistent selection
+        selection = self.gpu_tree_view.get_selection()
+        if self.selected_pids:
+            for i, row in enumerate(self.gpu_list_store):
+                if row[3] in self.selected_pids:  # PID column is 3 in GPU list
+                    selection.select_path(Gtk.TreePath.new_from_indices([i]))
+        
+        self._updating_selection = False
+        
+        # Update the selection panel
+        self.update_selection_panel()
     
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""
@@ -1840,9 +2009,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if not search_text:
             return
         
+        # Get current tab's tree view and list store
+        tree_view, list_store, _ = self._get_current_tree_view_info()
+        
         # Select all currently visible processes (they are already filtered by search)
-        selection = self.tree_view.get_selection()
-        for i in range(len(self.list_store)):
+        selection = tree_view.get_selection()
+        for i in range(len(list_store)):
             selection.select_path(Gtk.TreePath.new_from_indices([i]))
         
         # Clear search and close search bar
@@ -1850,7 +2022,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.search_bar.set_search_mode(False)
         
         # Focus back to tree view
-        self.tree_view.grab_focus()
+        tree_view.grab_focus()
     
     def select_first_item(self):
         """Select the first item in the process list."""
@@ -1893,7 +2065,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             if self.search_bar.get_search_mode():
                 self.search_entry.set_text("")
                 self.search_bar.set_search_mode(False)
-                self.tree_view.grab_focus()
+                # Focus current tab's tree view
+                tree_view, _, _ = self._get_current_tree_view_info()
+                tree_view.grab_focus()
                 return True  # Event handled
             return False
         
@@ -1969,7 +2143,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                         del self.selected_pids[pid]
                 except Exception as e:
                     self.show_error(f"Failed to terminate process {pid}: {e}")
-            GLib.timeout_add(500, self.refresh_processes)
+            GLib.timeout_add(500, self._refresh_current_tab)
     
     def force_kill_selected_processes(self):
         """Force kill selected processes using SIGKILL."""
@@ -1985,11 +2159,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             except Exception as e:
                 self.show_error(f"Failed to kill process {pid}: {e}")
         
-        GLib.timeout_add(500, self.refresh_processes)
+        GLib.timeout_add(500, self._refresh_current_tab)
     
     def on_kill_process(self, button):
         """Kill selected process(es)."""
-        selection = self.tree_view.get_selection()
+        tree_view, _, pid_col = self._get_current_tree_view_info()
+        selection = tree_view.get_selection()
         model, paths = selection.get_selected_rows()
         
         if not paths:
@@ -1998,7 +2173,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         processes = []
         for path in paths:
             iter = model.get_iter(path)
-            pid = model.get_value(iter, 6)
+            pid = model.get_value(iter, pid_col)
             name = model.get_value(iter, 0)
             processes.append({'pid': pid, 'name': name})
         
@@ -2024,7 +2199,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 self.show_error(f"Failed to kill process {pid}: {e}")
         
         # Refresh after killing
-        GLib.timeout_add(500, self.refresh_processes)
+        GLib.timeout_add(500, self._refresh_current_tab)
     
     def show_error(self, message):
         """Show error toast."""
@@ -2033,25 +2208,33 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         print(f"Error: {message}")
     
     def on_right_click(self, gesture, n_press, x, y):
-        """Handle right-click context menu."""
+        """Handle right-click context menu for processes tab."""
+        self._handle_right_click(self.tree_view, x, y)
+    
+    def on_gpu_right_click(self, gesture, n_press, x, y):
+        """Handle right-click context menu for GPU tab."""
+        self._handle_right_click(self.gpu_tree_view, x, y)
+    
+    def _handle_right_click(self, tree_view, x, y):
+        """Common handler for right-click context menu."""
         # Get clicked row
-        path_info = self.tree_view.get_path_at_pos(int(x), int(y))
+        path_info = tree_view.get_path_at_pos(int(x), int(y))
         if path_info:
             path, column, cell_x, cell_y = path_info
-            selection = self.tree_view.get_selection()
+            selection = tree_view.get_selection()
             
             if not selection.path_is_selected(path):
                 selection.unselect_all()
                 selection.select_path(path)
             
             # Show context menu
-            self.show_context_menu(x, y)
+            self._show_context_menu(tree_view, x, y)
     
-    def show_context_menu(self, x, y):
+    def _show_context_menu(self, tree_view, x, y):
         """Show the process context menu."""
         # Create a simple popover menu
         popover = Gtk.PopoverMenu()
-        popover.set_parent(self.tree_view)
+        popover.set_parent(tree_view)
         
         # Create menu model
         menu = Gio.Menu()
