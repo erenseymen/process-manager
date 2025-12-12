@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3584e4"/>
+      <stop offset="100%" style="stop-color:#1c71d8"/>
+    </linearGradient>
+    <linearGradient id="bar-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#57e389"/>
+      <stop offset="100%" style="stop-color:#33d17a"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background rounded square -->
+  <rect x="4" y="4" width="120" height="120" rx="24" ry="24" fill="url(#bg-gradient)"/>
+  
+  <!-- Monitor frame -->
+  <rect x="18" y="22" width="92" height="64" rx="6" ry="6" fill="#ffffff" opacity="0.95"/>
+  
+  <!-- Screen area -->
+  <rect x="24" y="28" width="80" height="52" rx="2" ry="2" fill="#2e3436"/>
+  
+  <!-- Bar chart representing processes -->
+  <rect x="32" y="62" width="12" height="14" fill="url(#bar-gradient)" rx="2"/>
+  <rect x="48" y="52" width="12" height="24" fill="url(#bar-gradient)" rx="2"/>
+  <rect x="64" y="42" width="12" height="34" fill="url(#bar-gradient)" rx="2"/>
+  <rect x="80" y="56" width="12" height="20" fill="url(#bar-gradient)" rx="2"/>
+  
+  <!-- Grid lines -->
+  <line x1="28" y1="45" x2="100" y2="45" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1"/>
+  <line x1="28" y1="55" x2="100" y2="55" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1"/>
+  <line x1="28" y1="65" x2="100" y2="65" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1"/>
+  
+  <!-- Monitor stand -->
+  <rect x="52" y="88" width="24" height="6" fill="#c0bfbc"/>
+  <rect x="44" y="94" width="40" height="8" rx="2" ry="2" fill="#9a9996"/>
+  
+  <!-- Circular CPU indicator -->
+  <circle cx="98" cy="106" r="14" fill="#ffffff" opacity="0.15"/>
+  <circle cx="98" cy="106" r="11" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.3"/>
+  <path d="M 98 95 A 11 11 0 1 1 87 106" fill="none" stroke="#57e389" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Circular memory indicator -->
+  <circle cx="30" cy="106" r="14" fill="#ffffff" opacity="0.15"/>
+  <circle cx="30" cy="106" r="11" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.3"/>
+  <path d="M 30 95 A 11 11 0 1 0 41 106" fill="none" stroke="#f66151" stroke-width="3" stroke-linecap="round"/>
+</svg>
+

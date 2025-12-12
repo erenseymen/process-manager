@@ -1,0 +1,6 @@
+data/io.github.processmanager.ProcessManager.desktop.in
+data/io.github.processmanager.ProcessManager.metainfo.xml.in
+src/main.py
+src/window.py
+src/preferences.py
+

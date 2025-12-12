@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.processmanager.ProcessManager</id>
+  
+  <name>Process Manager</name>
+  <summary>Monitor and manage system processes</summary>
+  
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  
+  <developer id="io.github.processmanager">
+    <name>Process Manager Developers</name>
+  </developer>
+  
+  <description>
+    <p>
+      Process Manager is a modern, GTK4-based system monitor for Linux. It provides
+      an intuitive interface to view and manage running processes on your system.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>View all running processes with detailed information</li>
+      <li>Monitor CPU and memory usage per process</li>
+      <li>Real-time system memory and swap usage display</li>
+      <li>End processes with optional confirmation</li>
+      <li>Search and filter processes</li>
+      <li>Sort by any column</li>
+      <li>Configurable refresh interval</li>
+      <li>Modern, adaptive interface using libadwaita</li>
+    </ul>
+  </description>
+  
+  <launchable type="desktop-id">io.github.processmanager.ProcessManager.desktop</launchable>
+  
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main window showing process list and system stats</caption>
+      <image>https://raw.githubusercontent.com/processmanager/processmanager/main/data/screenshots/main-window.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Preferences dialog</caption>
+      <image>https://raw.githubusercontent.com/processmanager/processmanager/main/data/screenshots/preferences.png</image>
+    </screenshot>
+  </screenshots>
+  
+  <url type="homepage">https://github.com/processmanager/processmanager</url>
+  <url type="bugtracker">https://github.com/processmanager/processmanager/issues</url>
+  <url type="vcs-browser">https://github.com/processmanager/processmanager</url>
+  
+  <content_rating type="oars-1.1" />
+  
+  <branding>
+    <color type="primary" scheme_preference="light">#62a0ea</color>
+    <color type="primary" scheme_preference="dark">#1c71d8</color>
+  </branding>
+  
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  
+  <releases>
+    <release version="1.0.0" date="2024-12-12">
+      <description>
+        <p>Initial release of Process Manager</p>
+        <ul>
+          <li>Process list with CPU, memory, and other details</li>
+          <li>System memory and swap monitoring</li>
+          <li>Process filtering and search</li>
+          <li>Configurable settings</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  
+  <kudos>
+    <kudo>ModernToolkit</kudo>
+    <kudo>HiDpiIcon</kudo>
+  </kudos>
+  
+  <translation type="gettext">process-manager</translation>
+</component>
+

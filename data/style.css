@@ -1,0 +1,75 @@
+/* Process Manager Styles */
+
+.stats-bar {
+  background-color: alpha(@view_bg_color, 0.9);
+  border-top: 1px solid @borders;
+  padding: 8px 12px;
+}
+
+.stats-bar .heading {
+  font-weight: bold;
+  font-size: 0.9em;
+}
+
+.toolbar {
+  background-color: alpha(@headerbar_bg_color, 0.5);
+  border-bottom: 1px solid @borders;
+}
+
+treeview {
+  background-color: @view_bg_color;
+}
+
+treeview:selected {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+
+treeview header button {
+  font-weight: 600;
+  padding: 6px 8px;
+}
+
+/* High CPU/Memory warning */
+.warning-cell {
+  color: @warning_color;
+  font-weight: bold;
+}
+
+.error-cell {
+  color: @error_color;
+  font-weight: bold;
+}
+
+/* Memory indicator colors */
+.mem-low {
+  color: @success_color;
+}
+
+.mem-medium {
+  color: @warning_color;
+}
+
+.mem-high {
+  color: @error_color;
+}
+
+/* Process name styling */
+.process-name {
+  font-family: monospace;
+}
+
+/* Search bar styling */
+searchbar {
+  background-color: @headerbar_bg_color;
+}
+
+searchentry {
+  margin: 6px;
+}
+
+/* Preferences styling */
+preferencespage {
+  margin: 12px;
+}
+

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Process Manager
+Comment=Monitor and manage system processes
+Exec=process-manager
+Icon=io.github.processmanager.ProcessManager
+Terminal=false
+Type=Application
+Categories=System;Monitor;GTK;
+Keywords=system;process;task;manager;monitor;cpu;memory;
+StartupNotify=true
+SingleMainWindow=true
+

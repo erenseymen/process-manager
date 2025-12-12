@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="process-manager">
+  <schema id="io.github.processmanager.ProcessManager" path="/io/github/processmanager/ProcessManager/">
+    
+    <key name="window-width" type="i">
+      <default>900</default>
+      <summary>Window width</summary>
+      <description>Width of the main window</description>
+    </key>
+    
+    <key name="window-height" type="i">
+      <default>600</default>
+      <summary>Window height</summary>
+      <description>Height of the main window</description>
+    </key>
+    
+    <key name="window-maximized" type="b">
+      <default>false</default>
+      <summary>Window maximized</summary>
+      <description>Whether the window is maximized</description>
+    </key>
+    
+    <key name="refresh-interval" type="i">
+      <default>2000</default>
+      <summary>Refresh interval</summary>
+      <description>Time between process list updates in milliseconds</description>
+    </key>
+    
+    <key name="show-all-processes" type="b">
+      <default>true</default>
+      <summary>Show all processes</summary>
+      <description>Show processes from all users</description>
+    </key>
+    
+    <key name="show-kernel-threads" type="b">
+      <default>false</default>
+      <summary>Show kernel threads</summary>
+      <description>Show kernel threads in the process list</description>
+    </key>
+    
+    <key name="confirm-kill" type="b">
+      <default>true</default>
+      <summary>Confirm before killing</summary>
+      <description>Show confirmation dialog before ending processes</description>
+    </key>
+    
+    <key name="sort-column" type="s">
+      <default>'cpu'</default>
+      <summary>Sort column</summary>
+      <description>Column to sort by</description>
+    </key>
+    
+    <key name="sort-descending" type="b">
+      <default>true</default>
+      <summary>Sort descending</summary>
+      <description>Sort in descending order</description>
+    </key>
+    
+  </schema>
+</schemalist>
+
