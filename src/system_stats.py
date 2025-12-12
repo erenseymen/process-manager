@@ -167,11 +167,11 @@ class SystemStats:
         except (OSError, IOError, ValueError, IndexError):
             return {'1min': 0.0, '5min': 0.0, '15min': 0.0}
     
-    def get_disk_info(self, path: str = '/') -> Dict[str, int]:
-        """Get disk usage information.
+    def get_disk_info(self, path: str | None = None) -> Dict[str, int]:
+        """Get disk usage information for user's home directory.
         
         Args:
-            path: Path to check disk usage for (default: root filesystem).
+            path: Path to check disk usage for. If None, uses user's home directory.
         
         Returns:
             Dictionary with disk statistics in bytes.
@@ -181,6 +181,18 @@ class SystemStats:
             'disk_used': 0,
             'disk_free': 0
         }
+        
+        # If no path specified, use user's home directory
+        if path is None:
+            try:
+                home_dir = os.path.expanduser('~')
+                # Fallback to HOME environment variable if expanduser fails
+                if not home_dir or home_dir == '~':
+                    home_dir = os.environ.get('HOME', '/')
+                path = home_dir
+            except (OSError, KeyError):
+                # Fallback to root if home directory cannot be determined
+                path = '/'
         
         try:
             usage = shutil.disk_usage(path)
