@@ -400,6 +400,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Key: PID, Value: dict with cpu, memory values
         self._prev_process_stats = {}
         
+        # Track processes that have ever used GPU (for GPU tab filtering)
+        # Set of PIDs that have used GPU at least once
+        self._gpu_used_pids = set()
+        
         # Window setup
         self.set_title("Process Manager")
         self.set_default_size(
@@ -1793,22 +1797,37 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Get GPU process data (only when on GPU tab)
         gpu_processes = self.gpu_stats.get_gpu_processes()
         
+        # Track processes that currently have GPU usage or are detected as GPU processes
+        # (e.g., Intel processes with DRM file descriptors open, even with 0% usage)
+        current_gpu_pids = set()
+        for pid, gpu_info in gpu_processes.items():
+            # Add all processes in gpu_processes (they're detected as GPU processes)
+            current_gpu_pids.add(pid)
+            # Add to "ever used GPU" set
+            self._gpu_used_pids.add(pid)
+        
+        # Clean up ended processes from "ever used GPU" set
+        self._gpu_used_pids = {pid for pid in self._gpu_used_pids if pid in all_pids}
+        
         # Combine process info with GPU info
-        # Show all processes, but highlight those with GPU usage
+        # Only show processes that have GPU usage (current or historical)
         combined_processes = []
+        
+        # Add processes that currently have GPU usage or have ever used GPU
         for pid, proc_info in all_process_map.items():
-            gpu_info = gpu_processes.get(pid, {})
-            combined_processes.append({
-                'pid': pid,
-                'name': proc_info['name'],
-                'cpu': proc_info['cpu'],
-                'memory': proc_info['memory'],
-                'gpu_info': gpu_info
-            })
+            if pid in current_gpu_pids or pid in self._gpu_used_pids:
+                gpu_info = gpu_processes.get(pid, {})
+                combined_processes.append({
+                    'pid': pid,
+                    'name': proc_info['name'],
+                    'cpu': proc_info['cpu'],
+                    'memory': proc_info['memory'],
+                    'gpu_info': gpu_info
+                })
         
         # Also include processes that have GPU usage but might not be in regular process list
         for pid, gpu_info in gpu_processes.items():
-            if pid not in all_process_map:
+            if pid not in all_process_map and (pid in current_gpu_pids or pid in self._gpu_used_pids):
                 # Try to get basic process info
                 try:
                     proc_details = self.process_manager.get_process_details(pid)
