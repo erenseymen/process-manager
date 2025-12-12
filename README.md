@@ -111,7 +111,8 @@ process-manager/
 │   ├── __init__.py
 │   ├── main.py              # Application entry point
 │   ├── window.py            # Main window UI
-│   ├── process_manager.py   # Process monitoring logic
+│   ├── process_manager.py   # Process management interface
+│   ├── ps_commands.py       # PS command utilities for process info
 │   ├── system_stats.py      # Memory/CPU stats
 │   ├── settings.py          # Settings management
 │   └── preferences.py       # Preferences dialog
