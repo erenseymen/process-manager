@@ -20,13 +20,14 @@ This file contains important context about the codebase for AI assistants.
 - GPU stats bar updates conditionally based on active tab
 
 ### Intel GPU Per-Process Stats (2025-12-12, updated)
-- Uses `intel_gpu_top -J -o -` with sudo and timeout for Intel GPU process monitoring
+- Uses `sudo -n intel_gpu_top -J -o -` with timeout for Intel GPU process monitoring
 - JSON output is an array of readings; parser extracts last complete object
 - Client info structure: `clients -> {client_id} -> {name, pid, engine-classes}`
 - Engine classes use hyphen: `engine-classes -> Render/3D|Video -> busy` (string values)
 - `_parse_intel_gpu_top_json()` helper handles incomplete JSON arrays (from timeout kill)
 - `run_host_command()` supports timeout parameter for long-running commands
 - Video engine (`Video`) usage mapped to both encoding and decoding columns
+- **Caching**: `_get_intel_gpu_data_cached()` caches intel_gpu_top results for 500ms to avoid multiple slow calls per refresh cycle (prevents UI freeze on tab switch)
 
 ### Design Patterns
 - Type hints used throughout for improved IDE support
