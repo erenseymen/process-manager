@@ -531,6 +531,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Custom sorting for numeric columns
         self.list_store.set_sort_func(1, self.sort_percent, None)  # CPU
         self.list_store.set_sort_func(2, self.sort_memory, None)   # Memory
+        self.list_store.set_sort_func(3, self.sort_started, None)  # Started
         self.list_store.set_sort_func(5, self.sort_nice, None)     # Nice
         self.list_store.set_sort_func(6, self.sort_pid, None)      # PID
         
@@ -556,16 +557,17 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             self.settings.set("sort_descending", sort_order == Gtk.SortType.DESCENDING)
     
     def sort_percent(self, model, iter1, iter2, user_data):
-        """Sort by percentage value."""
+        """Sort by percentage value (reversed: highest first on initial click)."""
         val1 = model.get_value(iter1, 1).rstrip('%')
         val2 = model.get_value(iter2, 1).rstrip('%')
         try:
-            return (float(val1) > float(val2)) - (float(val1) < float(val2))
+            # Reversed for descending on first click
+            return (float(val2) > float(val1)) - (float(val2) < float(val1))
         except ValueError:
             return 0
     
     def sort_memory(self, model, iter1, iter2, user_data):
-        """Sort by memory value."""
+        """Sort by memory value (reversed: highest first on initial click)."""
         def parse_mem(s):
             s = s.strip()
             if s.endswith('GiB'):
@@ -580,7 +582,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         val1 = parse_mem(model.get_value(iter1, 2))
         val2 = parse_mem(model.get_value(iter2, 2))
-        return (val1 > val2) - (val1 < val2)
+        # Reversed for descending on first click
+        return (val2 > val1) - (val2 < val1)
+    
+    def sort_started(self, model, iter1, iter2, user_data):
+        """Sort by started time (reversed: newest first on initial click)."""
+        val1 = model.get_value(iter1, 3)
+        val2 = model.get_value(iter2, 3)
+        # Reversed for descending on first click (newest/latest time first)
+        return (val2 > val1) - (val2 < val1)
     
     def sort_nice(self, model, iter1, iter2, user_data):
         """Sort by nice value (column 5)."""
