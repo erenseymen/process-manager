@@ -421,6 +421,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         scrolled.set_child(self.process_view)
         main_box.append(scrolled)
         
+        # High usage processes panel (above stats bar)
+        self.high_usage_panel = self.create_high_usage_panel()
+        main_box.append(self.high_usage_panel)
+        
         # System stats bar
         self.stats_bar = self.create_stats_bar()
         main_box.append(self.stats_bar)
@@ -753,6 +757,156 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 break
         self._updating_selection = False
     
+    def create_high_usage_panel(self):
+        """Create the high usage processes panel shown above swap/memory stats."""
+        # Main container
+        panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel_box.add_css_class("high-usage-panel")
+        
+        # Top separator
+        sep_top = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        panel_box.append(sep_top)
+        
+        # Content box
+        content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        content_box.set_margin_start(12)
+        content_box.set_margin_end(12)
+        content_box.set_margin_top(8)
+        content_box.set_margin_bottom(8)
+        
+        # Warning icon
+        warning_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        warning_icon.add_css_class("warning")
+        content_box.append(warning_icon)
+        
+        # High usage processes flow box
+        self.high_usage_flow = Gtk.FlowBox()
+        self.high_usage_flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.high_usage_flow.set_homogeneous(False)
+        self.high_usage_flow.set_max_children_per_line(50)
+        self.high_usage_flow.set_min_children_per_line(1)
+        self.high_usage_flow.set_row_spacing(4)
+        self.high_usage_flow.set_column_spacing(8)
+        self.high_usage_flow.set_hexpand(True)
+        content_box.append(self.high_usage_flow)
+        
+        panel_box.append(content_box)
+        
+        # Initially hidden
+        panel_box.set_visible(False)
+        
+        return panel_box
+    
+    def update_high_usage_panel(self, processes):
+        """Update the high usage panel with processes exceeding thresholds."""
+        cpu_threshold = self.settings.get("cpu_threshold_warning")
+        mem_threshold = self.settings.get("memory_threshold_warning")
+        
+        # Get total memory for percentage calculation
+        stats = self.system_stats.get_memory_info()
+        mem_total = stats['mem_total']
+        
+        # Find processes exceeding thresholds
+        high_cpu = []
+        high_mem = []
+        
+        for proc in processes:
+            cpu_percent = proc['cpu']
+            mem_percent = (proc['memory'] / mem_total * 100) if mem_total > 0 else 0
+            
+            if cpu_percent >= cpu_threshold:
+                high_cpu.append({
+                    'pid': proc['pid'],
+                    'name': proc['name'],
+                    'value': cpu_percent,
+                    'type': 'cpu'
+                })
+            
+            if mem_percent >= mem_threshold:
+                high_mem.append({
+                    'pid': proc['pid'],
+                    'name': proc['name'],
+                    'value': mem_percent,
+                    'type': 'mem'
+                })
+        
+        # Sort by value descending
+        high_cpu.sort(key=lambda x: x['value'], reverse=True)
+        high_mem.sort(key=lambda x: x['value'], reverse=True)
+        
+        # Clear existing items
+        while True:
+            child = self.high_usage_flow.get_child_at_index(0)
+            if child is None:
+                break
+            self.high_usage_flow.remove(child)
+        
+        # Show/hide panel
+        has_high_usage = len(high_cpu) > 0 or len(high_mem) > 0
+        self.high_usage_panel.set_visible(has_high_usage)
+        
+        if not has_high_usage:
+            return
+        
+        # Add high CPU processes
+        for proc in high_cpu[:5]:  # Limit to top 5
+            chip = self.create_high_usage_chip(proc, 'cpu')
+            self.high_usage_flow.append(chip)
+        
+        # Add high memory processes (avoid duplicates)
+        high_cpu_pids = {p['pid'] for p in high_cpu[:5]}
+        for proc in high_mem[:5]:  # Limit to top 5
+            if proc['pid'] not in high_cpu_pids:
+                chip = self.create_high_usage_chip(proc, 'mem')
+                self.high_usage_flow.append(chip)
+    
+    def create_high_usage_chip(self, proc, usage_type):
+        """Create a chip widget for a high usage process."""
+        chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        chip_box.add_css_class("high-usage-chip")
+        
+        if usage_type == 'cpu':
+            chip_box.add_css_class("high-cpu")
+        else:
+            chip_box.add_css_class("high-mem")
+        
+        # Process name
+        name_label = Gtk.Label(label=proc['name'])
+        name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        name_label.set_max_width_chars(15)
+        name_label.add_css_class("chip-name")
+        chip_box.append(name_label)
+        
+        # Usage value
+        if usage_type == 'cpu':
+            value_text = f"CPU {proc['value']:.1f}%"
+        else:
+            value_text = f"Mem {proc['value']:.1f}%"
+        
+        value_label = Gtk.Label(label=value_text)
+        value_label.add_css_class("chip-value")
+        chip_box.append(value_label)
+        
+        # Make clickable to select the process
+        gesture = Gtk.GestureClick()
+        gesture.connect("pressed", lambda g, n, x, y: self.select_process_by_pid(proc['pid']))
+        chip_box.add_controller(gesture)
+        
+        return chip_box
+    
+    def select_process_by_pid(self, pid):
+        """Select a process in the tree view by PID."""
+        selection = self.tree_view.get_selection()
+        for i, row in enumerate(self.list_store):
+            if row[6] == pid:  # PID column
+                selection.select_path(Gtk.TreePath.new_from_indices([i]))
+                # Scroll to the selected row
+                self.tree_view.scroll_to_cell(
+                    Gtk.TreePath.new_from_indices([i]), 
+                    None, True, 0.5, 0.0
+                )
+                break
+    
     def create_stats_bar(self):
         """Create the system stats bar at the bottom."""
         stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
@@ -985,6 +1139,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Update the selection panel (in case processes were cleaned up)
         self.update_selection_panel()
+        
+        # Update high usage panel
+        self.update_high_usage_panel(all_processes)
     
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""

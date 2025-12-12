@@ -8,11 +8,66 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, Gio, GLib
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 from .window import ProcessManagerWindow
 from .settings import Settings
 
 APP_ID = "io.github.processmanager.ProcessManager"
+
+# Application CSS styles
+APP_CSS = """
+.high-usage-panel {
+    background-color: alpha(@warning_color, 0.1);
+}
+
+.high-usage-chip {
+    padding: 4px 10px;
+    border-radius: 16px;
+    background-color: alpha(@warning_color, 0.15);
+    border: 1px solid alpha(@warning_color, 0.3);
+}
+
+.high-usage-chip.high-cpu {
+    background-color: alpha(@error_color, 0.15);
+    border-color: alpha(@error_color, 0.3);
+}
+
+.high-usage-chip.high-mem {
+    background-color: alpha(@warning_color, 0.15);
+    border-color: alpha(@warning_color, 0.3);
+}
+
+.high-usage-chip .chip-name {
+    font-weight: bold;
+}
+
+.high-usage-chip .chip-value {
+    font-size: 0.9em;
+    opacity: 0.85;
+}
+
+.selection-chip {
+    padding: 4px 10px;
+    border-radius: 16px;
+    background-color: alpha(@accent_bg_color, 0.15);
+    border: 1px solid alpha(@accent_color, 0.3);
+}
+
+.selection-chip .chip-name {
+    font-weight: bold;
+}
+
+.selection-chip .chip-stats {
+    font-size: 0.9em;
+    opacity: 0.7;
+}
+
+.selection-chip .chip-remove {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0;
+}
+"""
 
 
 class ProcessManagerApplication(Adw.Application):
@@ -29,6 +84,9 @@ class ProcessManagerApplication(Adw.Application):
         
         # Set up actions
         self.create_actions()
+        
+        # Load CSS
+        self.load_css()
     
     def create_actions(self):
         """Create application actions."""
@@ -54,6 +112,16 @@ class ProcessManagerApplication(Adw.Application):
         refresh_action.connect("activate", self.on_refresh)
         self.add_action(refresh_action)
         self.set_accels_for_action("app.refresh", ["F5"])
+    
+    def load_css(self):
+        """Load application CSS styles."""
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(APP_CSS.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
     
     def do_activate(self):
         """Handle application activation (single instance)."""
