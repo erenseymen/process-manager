@@ -2307,6 +2307,21 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 self.view_stack.set_visible_child_name("processes")
             return True  # Event handled
         
+        # Handle Ctrl+F - toggle filter/search bar
+        if keyval == Gdk.KEY_f and has_ctrl and not has_alt and not has_shift:
+            if self.search_bar.get_search_mode():
+                # Close search bar
+                self.search_entry.set_text("")
+                self.search_bar.set_search_mode(False)
+                # Focus current tab's tree view
+                tree_view, _, _ = self._get_current_tree_view_info()
+                tree_view.grab_focus()
+            else:
+                # Open search bar
+                self.search_bar.set_search_mode(True)
+                self.search_entry.grab_focus()
+            return True  # Event handled
+        
         # Handle Escape key to close search bar
         if keyval == Gdk.KEY_Escape:
             if self.search_bar.get_search_mode():
