@@ -19,3 +19,14 @@ This file contains important context about the codebase for AI assistants.
 - Bars are color-coded: low (green/blue), medium (orange/yellow), high (red)
 - Sorted by memory usage descending for easy comparison
 
+### System Stats Bar (2025-12-12)
+- Located at the bottom of the window in `ProcessManagerWindow.create_stats_bar()`
+- Displays three system resource sections: Memory, Swap, and Disk
+- Each section shows:
+  - Circular progress indicator (color-coded)
+  - Title label
+  - Usage details: "used (percentage) of total"
+- Memory section also shows cache information
+- Stats are updated periodically via `update_system_stats()` method
+- Disk usage is retrieved via `SystemStats.get_disk_info()` using `shutil.disk_usage()`
+
