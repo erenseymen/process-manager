@@ -10,7 +10,7 @@ A modern, GTK4-based system process manager for Linux.
 - **Resource Usage**: Monitor CPU and memory usage per process
 - **System Stats**: Real-time memory and swap usage display with visual indicators
 - **Process Control**: End processes with optional confirmation
-- **Search & Filter**: Quickly find processes by name, PID, or user
+- **Filter**: Quickly find processes by name, PID, or user
 - **Sortable Columns**: Sort by Process Name, CPU, Memory, Started, User, Nice, or PID
 - **Single Instance**: Only one instance of the app runs at a time
 - **Modern UI**: Built with GTK4 and libadwaita for a native GNOME experience
@@ -143,7 +143,7 @@ Settings are stored in `~/.config/process-manager/settings.json` and include:
 | `F5` | Refresh process list |
 | `Ctrl+Q` | Quit application |
 | `Ctrl+,` | Open preferences |
-| `Ctrl+F` | Toggle search |
+| `Ctrl+F` | Toggle filter |
 
 ## Publishing to Flathub
 
