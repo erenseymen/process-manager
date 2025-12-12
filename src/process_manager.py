@@ -346,8 +346,37 @@ class ProcessManager:
         return False
     
     def kill_process(self, pid, signal_num=signal.SIGTERM):
-        """Send a signal to a process."""
-        os.kill(pid, signal_num)
+        """Send a signal to a process.
+        
+        When running in Flatpak, uses flatpak-spawn --host to send signals
+        to host processes since os.kill() only works within the sandbox.
+        """
+        if self._is_flatpak:
+            # Use kill command via flatpak-spawn to reach host processes
+            signal_name = self._get_signal_name(signal_num)
+            cmd = ['kill', f'-{signal_name}', str(pid)]
+            result = subprocess.run(
+                ['flatpak-spawn', '--host'] + cmd,
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or f"Failed to send {signal_name} to process {pid}"
+                raise ProcessLookupError(error_msg)
+        else:
+            os.kill(pid, signal_num)
+    
+    def _get_signal_name(self, signal_num):
+        """Get the signal name from signal number."""
+        signal_names = {
+            signal.SIGTERM: 'TERM',
+            signal.SIGKILL: 'KILL',
+            signal.SIGINT: 'INT',
+            signal.SIGHUP: 'HUP',
+            signal.SIGSTOP: 'STOP',
+            signal.SIGCONT: 'CONT',
+        }
+        return signal_names.get(signal_num, str(signal_num))
     
     def renice_process(self, pid, nice_value):
         """Change the nice value of a process."""
