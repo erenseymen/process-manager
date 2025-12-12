@@ -141,7 +141,11 @@ class ProcessDetailsDialog(Adw.Window):
         row.set_title(label)
         
         if multiline:
-            # For multiline content, use a text view
+            # For multiline content, use a text view with copy button
+            multiline_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            multiline_box.set_hexpand(True)
+            
+            # Text view for multiline content
             text_view = Gtk.TextView()
             text_view.set_editable(False)
             text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -161,11 +165,24 @@ class ProcessDetailsDialog(Adw.Window):
                 scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
                 scroll.set_max_content_height(max_lines * 20 + 12)
                 scroll.set_child(text_view)
-                row.add_suffix(scroll)
                 scroll.set_hexpand(True)
+                multiline_box.append(scroll)
             else:
-                row.add_suffix(text_view)
                 text_view.set_hexpand(True)
+                multiline_box.append(text_view)
+            
+            # Copy button for multiline content
+            copy_btn = Gtk.Button()
+            copy_btn.set_icon_name("edit-copy-symbolic")
+            copy_btn.set_tooltip_text("Copy to clipboard")
+            copy_btn.add_css_class("flat")
+            copy_btn.add_css_class("circular")
+            copy_btn.set_valign(Gtk.Align.START)
+            copy_btn.set_margin_top(4)
+            copy_btn.connect("clicked", lambda b, v=value: self.copy_to_clipboard(v))
+            multiline_box.append(copy_btn)
+            
+            row.add_suffix(multiline_box)
         else:
             # Single line - use label with copy button
             value_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
