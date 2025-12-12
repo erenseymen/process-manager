@@ -417,6 +417,7 @@ class GPUStats:
         # Calculate usage percentages from delta between readings
         time_delta = current_time - self._intel_fdinfo_timestamp
         
+        # If we have cached data and enough time has passed, calculate usage
         if time_delta > 0.1 and self._intel_fdinfo_cache:  # Need at least 100ms between readings
             for pid, current in current_readings.items():
                 if pid in self._intel_fdinfo_cache:
@@ -434,14 +435,24 @@ class GPUStats:
                         render_pct = min(100.0, (render_delta / time_delta_ns) * 100.0)
                         video_pct = min(100.0, (video_delta / time_delta_ns) * 100.0)
                         
-                        # Only include if there's actual usage
-                        if render_pct > 0.1 or video_pct > 0.1:
-                            processes[pid] = {
-                                'gpu_usage': render_pct,
-                                'gpu_memory': 0,
-                                'encoding': video_pct,  # Video engine handles both enc/dec
-                                'decoding': video_pct
-                            }
+                        # Include process if there's actual usage or if it has DRM file descriptors
+                        # (show processes even with 0% usage so they're visible in the list)
+                        processes[pid] = {
+                            'gpu_usage': max(0.0, render_pct),
+                            'gpu_memory': 0,
+                            'encoding': max(0.0, video_pct),  # Video engine handles both enc/dec
+                            'decoding': max(0.0, video_pct)
+                        }
+        else:
+            # First call or not enough time passed: return processes with DRM file descriptors
+            # but with 0% usage (they'll show up in the list and usage will be calculated next time)
+            for pid in current_readings.keys():
+                processes[pid] = {
+                    'gpu_usage': 0.0,
+                    'gpu_memory': 0,
+                    'encoding': 0.0,
+                    'decoding': 0.0
+                }
         
         # Update cache
         self._intel_fdinfo_cache = current_readings

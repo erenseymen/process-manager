@@ -1711,9 +1711,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                     row_data.extend(["", "", ""])
             
             if 'intel' in self.gpu_stats.gpu_types:
-                if gpu_type == 'intel' and (gpu_info.get('gpu_usage', 0) > 0 or 
-                                            gpu_info.get('encoding', 0) > 0 or 
-                                            gpu_info.get('decoding', 0) > 0):
+                if gpu_type == 'intel':
+                    # Show Intel GPU processes even with 0% usage so they're visible
                     row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")
