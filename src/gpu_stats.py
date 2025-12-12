@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import subprocess
@@ -298,38 +299,19 @@ class GPUStats:
         """Get Intel GPU process information using intel_gpu_top.
         
         Uses intel_gpu_top as the only method for detecting Intel GPU processes.
+        Tries multiple output formats to get per-process information.
         """
         processes: Dict[int, Dict[str, Any]] = {}
         
-        # Use intel_gpu_top (user-requested dependency)
+        # Use run_host_command to support Flatpak and handle permissions properly
+        # Try intel_gpu_top JSON output first (if available)
         try:
-            # Check if intel_gpu_top is available
-            cmd_check = ['intel_gpu_top', '-h']
-            result = subprocess.run(
-                cmd_check,
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            # If help works, the command is available
-            if result.returncode not in [0, 1]:  # Not available if help doesn't work
-                return processes
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            return processes
-        
-        # Try intel_gpu_top JSON output
-        try:
-            # Try JSON output format
             cmd_json = ['intel_gpu_top', '-J', '-l', '1', '-s', '500']
-            result = subprocess.run(
-                cmd_json,
-                capture_output=True,
-                text=True,
-                timeout=3
-            )
-            if result.returncode == 0 and result.stdout and result.stdout.strip():
+            output_json = run_host_command(cmd_json)
+            
+            if output_json and output_json.strip():
                 try:
-                    data = json.loads(result.stdout)
+                    data = json.loads(output_json)
                     # Parse JSON structure (format may vary)
                     if isinstance(data, dict):
                         # Look for processes in various possible JSON structures
@@ -341,13 +323,44 @@ class GPUStats:
                             for key, value in data['engines'].items():
                                 if isinstance(value, dict) and 'processes' in value:
                                     proc_data.update(value['processes'])
+                        elif 'client' in data or 'clients' in data:
+                            # Some versions use 'client' or 'clients' for process info
+                            client_data = data.get('clients', data.get('client', {}))
+                            if isinstance(client_data, dict):
+                                proc_data = client_data
+                            elif isinstance(client_data, list):
+                                # Convert list of clients to dict
+                                for client in client_data:
+                                    if isinstance(client, dict) and 'pid' in client:
+                                        pid = str(client['pid'])
+                                        proc_data[pid] = client
                         
                         for pid_str, proc_info in proc_data.items():
                             try:
                                 pid = int(pid_str)
                                 if isinstance(proc_info, dict):
-                                    gpu_usage = float(proc_info.get('gpu', proc_info.get('GPU', proc_info.get('render', 0))))
-                                    video_usage = float(proc_info.get('video', proc_info.get('Video', proc_info.get('vcs', 0))))
+                                    # Try various key names for GPU usage
+                                    gpu_usage = 0.0
+                                    video_usage = 0.0
+                                    
+                                    # Look for render/RCS usage
+                                    for key in ['gpu', 'GPU', 'render', 'RCS', 'rcs', 'gpu_usage', 'render_usage']:
+                                        if key in proc_info:
+                                            try:
+                                                gpu_usage = float(proc_info[key])
+                                                break
+                                            except (ValueError, TypeError):
+                                                pass
+                                    
+                                    # Look for video/VCS usage
+                                    for key in ['video', 'Video', 'vcs', 'VCS', 'video_usage', 'encoding', 'decoding']:
+                                        if key in proc_info:
+                                            try:
+                                                video_usage = float(proc_info[key])
+                                                break
+                                            except (ValueError, TypeError):
+                                                pass
+                                    
                                     # Include processes even with 0% usage to make them visible
                                     processes[pid] = {
                                         'gpu_usage': max(0.0, gpu_usage),
@@ -359,59 +372,117 @@ class GPUStats:
                                 continue
                 except (json.JSONDecodeError, KeyError, TypeError):
                     pass
-        except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
+        except Exception:
             pass
         
         # If JSON format didn't work, try CSV format as fallback
         if not processes:
             try:
                 cmd_csv = ['intel_gpu_top', '-c', '-l', '1', '-s', '500']
-                result = subprocess.run(
-                    cmd_csv,
-                    capture_output=True,
-                    text=True,
-                    timeout=3
-                )
-                if result.returncode == 0 and result.stdout and result.stdout.strip():
+                output_csv = run_host_command(cmd_csv)
+                
+                if output_csv and output_csv.strip():
                     # Parse CSV format - typically has headers and process rows
-                    lines = result.stdout.strip().split('\n')
+                    lines = output_csv.strip().split('\n')
                     if len(lines) > 1:
-                        # Skip header line, parse process rows
-                        for line in lines[1:]:
-                            parts = [p.strip() for p in line.split(',')]
-                            # CSV format may vary, try to extract PID and usage info
-                            # This is a basic parser - may need adjustment based on actual format
-                            if len(parts) >= 3:
-                                try:
-                                    # Look for PID in the line
-                                    for part in parts:
-                                        if part.isdigit() and int(part) > 0:
-                                            pid = int(part)
-                                            # Try to find usage percentages
+                        # Try to identify header row and parse accordingly
+                        header = None
+                        for i, line in enumerate(lines):
+                            line_lower = line.lower()
+                            if 'pid' in line_lower or 'process' in line_lower:
+                                header = i
+                                break
+                        
+                        if header is not None and len(lines) > header + 1:
+                            # Parse header to find column indices
+                            header_parts = [p.strip().lower() for p in lines[header].split(',')]
+                            try:
+                                pid_idx = header_parts.index('pid')
+                                # Look for GPU usage columns
+                                gpu_idx = None
+                                video_idx = None
+                                for idx, col in enumerate(header_parts):
+                                    if any(x in col for x in ['gpu', 'render', 'rcs']):
+                                        gpu_idx = idx
+                                    if any(x in col for x in ['video', 'vcs', 'encode', 'decode']):
+                                        video_idx = idx
+                                
+                                # Parse process rows
+                                for line in lines[header + 1:]:
+                                    if not line.strip():
+                                        continue
+                                    parts = [p.strip() for p in line.split(',')]
+                                    if len(parts) > pid_idx:
+                                        try:
+                                            pid = int(parts[pid_idx])
                                             gpu_usage = 0.0
                                             video_usage = 0.0
-                                            for p in parts:
-                                                if '%' in p:
-                                                    try:
-                                                        val = float(p.rstrip('%'))
-                                                        if 'video' in line.lower() or 'vcs' in line.lower():
-                                                            video_usage = max(video_usage, val)
-                                                        else:
-                                                            gpu_usage = max(gpu_usage, val)
-                                                    except ValueError:
-                                                        pass
                                             
-                                            if pid not in processes:
-                                                processes[pid] = {
-                                                    'gpu_usage': max(0.0, gpu_usage),
-                                                    'gpu_memory': 0,
-                                                    'encoding': max(0.0, video_usage),
-                                                    'decoding': max(0.0, video_usage)
-                                                }
-                                            break
-                                except (ValueError, IndexError):
-                                    continue
-            except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
+                                            if gpu_idx and len(parts) > gpu_idx:
+                                                try:
+                                                    val = parts[gpu_idx].rstrip('%')
+                                                    gpu_usage = float(val)
+                                                except (ValueError, IndexError):
+                                                    pass
+                                            
+                                            if video_idx and len(parts) > video_idx:
+                                                try:
+                                                    val = parts[video_idx].rstrip('%')
+                                                    video_usage = float(val)
+                                                except (ValueError, IndexError):
+                                                    pass
+                                            
+                                            processes[pid] = {
+                                                'gpu_usage': max(0.0, gpu_usage),
+                                                'gpu_memory': 0,
+                                                'encoding': max(0.0, video_usage),
+                                                'decoding': max(0.0, video_usage)
+                                            }
+                                        except (ValueError, IndexError):
+                                            continue
+                            except (ValueError, IndexError):
+                                pass
+            except Exception:
+                pass
+        
+        # If still no processes found from intel_gpu_top output,
+        # find processes that have Intel GPU file descriptors open
+        # This is a fallback method that doesn't require parsing intel_gpu_top output
+        if not processes:
+            try:
+                # Find processes with DRM (Intel GPU) file descriptors
+                for proc_dir in glob.glob('/proc/[0-9]*'):
+                    try:
+                        pid = int(os.path.basename(proc_dir))
+                        fd_dir = os.path.join(proc_dir, 'fd')
+                        if not os.path.isdir(fd_dir):
+                            continue
+                        
+                        # Check if process has any DRM file descriptors
+                        has_drm_fd = False
+                        for fd in os.listdir(fd_dir):
+                            fd_path = os.path.join(fd_dir, fd)
+                            try:
+                                target = os.readlink(fd_path)
+                                # Intel GPU devices are typically /dev/dri/card* or /dev/dri/renderD*
+                                if '/dev/dri/' in target:
+                                    has_drm_fd = True
+                                    break
+                            except (OSError, ValueError):
+                                continue
+                        
+                        # If process has DRM file descriptors, include it with 0% usage initially
+                        # Usage will be calculated by intel_gpu_top in subsequent calls if available
+                        if has_drm_fd and pid not in processes:
+                            processes[pid] = {
+                                'gpu_usage': 0.0,
+                                'gpu_memory': 0,
+                                'encoding': 0.0,
+                                'decoding': 0.0
+                            }
+                    except (ValueError, OSError, PermissionError):
+                        continue
+            except Exception:
                 pass
         
         return processes
