@@ -1297,13 +1297,48 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         return False  # Don't repeat
     
     def on_key_pressed(self, controller, keyval, keycode, state):
-        """Handle key press to open search bar and type."""
+        """Handle key press for global shortcuts and search."""
+        # Check modifier keys
+        has_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        
         # Handle Escape key to close search bar
         if keyval == Gdk.KEY_Escape:
             if self.search_bar.get_search_mode():
                 self.search_entry.set_text("")
                 self.search_bar.set_search_mode(False)
                 self.tree_view.grab_focus()
+                return True  # Event handled
+            return False
+        
+        # Handle Backspace - open search and clear search term
+        if keyval == Gdk.KEY_BackSpace and not has_ctrl and not has_alt:
+            self.search_bar.set_search_mode(True)
+            self.search_entry.set_text("")
+            self.search_entry.grab_focus()
+            return True  # Event handled
+        
+        # Handle Space - toggle Play/Pause auto refresh
+        if keyval == Gdk.KEY_space and not has_ctrl and not has_alt and not has_shift:
+            # Don't handle if search bar is focused
+            if self.search_bar.get_search_mode() and self.search_entry.has_focus():
+                return False
+            # Toggle auto refresh
+            self.auto_refresh_button.set_active(not self.auto_refresh_button.get_active())
+            return True  # Event handled
+        
+        # Handle Delete - terminate selected processes (SIGTERM)
+        if keyval == Gdk.KEY_Delete and not has_shift and not has_ctrl and not has_alt:
+            if self.selected_pids:
+                self.terminate_selected_processes()
+                return True  # Event handled
+            return False
+        
+        # Handle Shift+Delete - force kill selected processes (SIGKILL)
+        if keyval == Gdk.KEY_Delete and has_shift and not has_ctrl and not has_alt:
+            if self.selected_pids:
+                self.force_kill_selected_processes()
                 return True  # Event handled
             return False
         
@@ -1328,6 +1363,44 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             return True  # Event handled
         
         return False  # Let other handlers process
+    
+    def terminate_selected_processes(self):
+        """Terminate selected processes using SIGTERM."""
+        if not self.selected_pids:
+            return
+        
+        processes = []
+        for pid, info in self.selected_pids.items():
+            processes.append({'pid': pid, 'name': info.get('name', 'Unknown')})
+        
+        if self.settings.get("confirm_kill"):
+            self.show_termination_dialog(processes)
+        else:
+            # Send SIGTERM to all selected processes
+            for pid in list(self.selected_pids.keys()):
+                try:
+                    self.process_manager.kill_process(pid, signal.SIGTERM)
+                    if pid in self.selected_pids:
+                        del self.selected_pids[pid]
+                except Exception as e:
+                    self.show_error(f"Failed to terminate process {pid}: {e}")
+            GLib.timeout_add(500, self.refresh_processes)
+    
+    def force_kill_selected_processes(self):
+        """Force kill selected processes using SIGKILL."""
+        if not self.selected_pids:
+            return
+        
+        # Send SIGKILL to all selected processes (no confirmation for force kill)
+        for pid in list(self.selected_pids.keys()):
+            try:
+                self.process_manager.kill_process(pid, signal.SIGKILL)
+                if pid in self.selected_pids:
+                    del self.selected_pids[pid]
+            except Exception as e:
+                self.show_error(f"Failed to kill process {pid}: {e}")
+        
+        GLib.timeout_add(500, self.refresh_processes)
     
     def on_kill_process(self, button):
         """Kill selected process(es)."""
