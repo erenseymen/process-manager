@@ -434,7 +434,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Create ViewStack for tabs
         self.view_stack = Adw.ViewStack()
-        self.view_stack.set_transition_type(Adw.ViewStackTransitionType.SLIDE)
         
         # Processes tab
         processes_page = self.create_processes_tab()
