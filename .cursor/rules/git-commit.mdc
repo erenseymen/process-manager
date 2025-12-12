@@ -19,7 +19,7 @@ At the end of each response, if changes were made to files, commit these changes
 1. After making code or file changes, run `git add` and `git commit` commands at the end of the response
 2. Use conventional commits format (feat:, fix:, docs:, refactor:, chore:, etc.)
 3. Only commit when actual changes were made, do not commit when only reading or analysis was performed
-4. Update `README.md` accordingly when making changes that affect features, installation, or usage
+4. Update `README.md` if needed
 
 # AI Context Rule
 
