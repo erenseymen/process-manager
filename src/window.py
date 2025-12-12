@@ -413,10 +413,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def on_search_changed(self, entry):
         """Handle search text change."""
         self.refresh_processes()
-        
-        # Hide search bar when search text is empty
-        if not entry.get_text():
-            self.search_bar.set_search_mode(False)
     
     def select_first_item(self):
         """Select the first item in the process list."""
