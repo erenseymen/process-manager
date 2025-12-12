@@ -1,1 +1,35 @@
+# IDE
 .vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Flatpak build directories
+.flatpak-builder/
+.flatpak/
+
+# Meson build directories
+_build/
+build/
+.meson/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+*.egg
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
