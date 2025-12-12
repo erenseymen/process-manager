@@ -26,6 +26,17 @@ def get_host_proc_path():
     return Path('/proc')
 
 
+def run_host_command(cmd):
+    """Run a command on the host system using flatpak-spawn."""
+    if is_flatpak():
+        full_cmd = ['flatpak-spawn', '--host'] + cmd
+    else:
+        full_cmd = cmd
+    
+    result = subprocess.run(full_cmd, capture_output=True, text=True)
+    return result.stdout
+
+
 class ProcessManager:
     """Manages process information and operations."""
     
@@ -40,7 +51,80 @@ class ProcessManager:
         processes = []
         current_uid = os.getuid()
         
-        # Get system stats for CPU calculation
+        # Use ps command via flatpak-spawn for Flatpak, direct /proc access otherwise
+        if self._is_flatpak:
+            processes = self._get_processes_via_ps(current_uid, my_processes, active_only)
+        else:
+            processes = self._get_processes_via_proc(current_uid, my_processes, active_only)
+        
+        return processes
+    
+    def _get_processes_via_ps(self, current_uid, my_processes, active_only):
+        """Get processes using ps command via flatpak-spawn --host."""
+        processes = []
+        
+        try:
+            # Use ps with custom format to get all needed info
+            # pid, comm, %cpu, rss (in KB), lstart, user, nice, uid, state
+            cmd = ['ps', '-eo', 'pid,comm,%cpu,rss,lstart,user,nice,uid,state', '--no-headers']
+            output = run_host_command(cmd)
+            
+            for line in output.strip().split('\n'):
+                if not line.strip():
+                    continue
+                
+                try:
+                    # Parse ps output - lstart has spaces so we need careful parsing
+                    # Format: PID COMMAND %CPU RSS DAY MON DD HH:MM:SS YYYY USER NI UID STATE
+                    parts = line.split()
+                    if len(parts) < 13:
+                        continue
+                    
+                    pid = int(parts[0])
+                    name = parts[1]
+                    cpu = float(parts[2])
+                    memory_kb = int(parts[3])
+                    memory_bytes = memory_kb * 1024
+                    
+                    # lstart is 5 fields: Day Mon DD HH:MM:SS YYYY
+                    started_str = parts[7]  # Just use time part HH:MM:SS
+                    
+                    # Rest of fields after lstart
+                    user = parts[9]
+                    nice = int(parts[10])
+                    uid = int(parts[11])
+                    state = parts[12]
+                    
+                    # Apply filters
+                    if my_processes and uid != current_uid:
+                        continue
+                    
+                    if active_only and cpu < 0.1:
+                        continue
+                    
+                    processes.append({
+                        'pid': pid,
+                        'name': name,
+                        'cpu': cpu,
+                        'memory': memory_bytes,
+                        'started': started_str,
+                        'user': user,
+                        'nice': nice,
+                        'uid': uid,
+                        'state': state
+                    })
+                    
+                except (ValueError, IndexError):
+                    continue
+                    
+        except Exception:
+            pass
+        
+        return processes
+    
+    def _get_processes_via_proc(self, current_uid, my_processes, active_only):
+        """Get processes by reading /proc directly."""
+        processes = []
         total_cpu_time = self._get_total_cpu_time()
         
         for pid_dir in self._proc_path.iterdir():
