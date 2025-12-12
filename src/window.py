@@ -1134,20 +1134,24 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Filter by search
         if search_text:
-            filtered_processes = [p for p in processes if search_text in p['name'].lower() or 
-                        search_text in str(p['pid']) or
-                        search_text in p['user'].lower()]
+            # When searching, hide already selected items from results
+            filtered_processes = [p for p in processes if 
+                        (search_text in p['name'].lower() or 
+                         search_text in str(p['pid']) or
+                         search_text in p['user'].lower()) and
+                        p['pid'] not in self.selected_pids]
         else:
             filtered_processes = processes
-        
-        # Get PIDs of filtered processes
-        filtered_pids = {p['pid'] for p in filtered_processes}
-        
-        # Add selected processes that don't match the filter but still exist
-        for pid in self.selected_pids:
-            if pid not in filtered_pids and pid in all_pids:
-                # Add selected process to the list
-                filtered_processes.append(all_process_map[pid])
+            
+            # Get PIDs of filtered processes
+            filtered_pids = {p['pid'] for p in filtered_processes}
+            
+            # Add selected processes that don't match the filter but still exist
+            # (only when not searching)
+            for pid in self.selected_pids:
+                if pid not in filtered_pids and pid in all_pids:
+                    # Add selected process to the list
+                    filtered_processes.append(all_process_map[pid])
         
         # Update list store
         self._updating_selection = True
