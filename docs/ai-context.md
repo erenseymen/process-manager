@@ -38,6 +38,14 @@ This file contains important context about the codebase for AI assistants.
 - `_on_gpu_data_updated()`: Callback using `GLib.idle_add()` for thread-safe UI updates
 - Background thread updates shared cache; UI reads from cache without blocking
 
+### Process Details Dialog (2025-12-12)
+- `ProcessDetailsDialog` class shows all process information in a modal window
+- Opened by pressing Enter on a selected process in Processes or GPU tab
+- Displays: PID, Name, User, State, CPU, Memory, Nice, Started, Command Line, Executable, Working Directory, Threads, File Descriptors, Environment Variables
+- All fields are copyable: single-line fields have copy button, multi-line fields use selectable text views
+- Uses `Adw.PreferencesGroup` for organized layout with sections
+- Escape key closes the dialog
+
 ### Design Patterns
 - Type hints used throughout for improved IDE support
 - Settings stored in JSON format at `~/.config/process-manager/settings.json`
