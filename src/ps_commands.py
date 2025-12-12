@@ -1,16 +1,25 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # PS command utilities for process information retrieval
 
+"""Utilities for retrieving process information via ps and other system commands."""
+
+from __future__ import annotations
+
 import os
 import subprocess
+from typing import Any, Dict, List
 
 
-def is_flatpak():
-    """Check if running inside a Flatpak sandbox."""
+def is_flatpak() -> bool:
+    """Check if running inside a Flatpak sandbox.
+    
+    Returns:
+        True if running inside Flatpak, False otherwise.
+    """
     return os.path.exists('/.flatpak-info')
 
 
-def run_host_command(cmd):
+def run_host_command(cmd: List[str]) -> str:
     """Run a command on the host system using flatpak-spawn.
     
     When running in Flatpak, uses flatpak-spawn --host to execute
@@ -31,7 +40,12 @@ def run_host_command(cmd):
     return result.stdout
 
 
-def get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_threads):
+def get_processes_via_ps(
+    current_uid: int,
+    my_processes: bool,
+    active_only: bool,
+    show_kernel_threads: bool
+) -> List[Dict[str, Any]]:
     """Get processes using ps command.
     
     Args:
@@ -44,7 +58,7 @@ def get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_thr
         List of process dictionaries with keys:
         pid, name, cpu, memory, started, user, nice, uid, state
     """
-    processes = []
+    processes: List[Dict[str, Any]] = []
     
     try:
         # Use ps with custom format to get all needed info
@@ -106,13 +120,13 @@ def get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_thr
             except (ValueError, IndexError):
                 continue
                 
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
     
     return processes
 
 
-def get_process_details_via_ps(pid):
+def get_process_details_via_ps(pid: int) -> Dict[str, Any]:
     """Get detailed information about a process using ps and other commands.
     
     Args:
@@ -121,14 +135,14 @@ def get_process_details_via_ps(pid):
     Returns:
         Dictionary with process details: cmdline, cwd, exe, environ, fd_count, threads
     """
-    details = {}
+    details: Dict[str, Any] = {}
     
     try:
         # Get command line using ps
         cmd = ['ps', '-p', str(pid), '-o', 'args=']
         output = run_host_command(cmd).strip()
         details['cmdline'] = output if output else '[kernel thread]'
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         details['cmdline'] = 'N/A'
     
     try:
@@ -140,7 +154,7 @@ def get_process_details_via_ps(pid):
             details['cwd'] = output.split(':', 1)[1].strip()
         else:
             details['cwd'] = 'N/A'
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         details['cwd'] = 'N/A'
     
     try:
@@ -148,7 +162,7 @@ def get_process_details_via_ps(pid):
         cmd = ['readlink', '-f', f'/proc/{pid}/exe']
         output = run_host_command(cmd).strip()
         details['exe'] = output if output else 'N/A'
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         details['exe'] = 'N/A'
     
     try:
@@ -157,7 +171,7 @@ def get_process_details_via_ps(pid):
         output = run_host_command(cmd)
         environ = output.replace('\x00', '\n')
         details['environ'] = environ[:2000] if environ else 'N/A'
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         details['environ'] = 'N/A'
     
     try:
@@ -166,7 +180,7 @@ def get_process_details_via_ps(pid):
         output = run_host_command(cmd)
         fd_count = len(output.strip().split('\n')) if output.strip() else 0
         details['fd_count'] = fd_count
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         details['fd_count'] = 0
     
     try:
@@ -174,13 +188,13 @@ def get_process_details_via_ps(pid):
         cmd = ['ps', '-p', str(pid), '-o', 'nlwp=']
         output = run_host_command(cmd).strip()
         details['threads'] = int(output) if output else 1
-    except Exception:
+    except (OSError, subprocess.SubprocessError, ValueError):
         details['threads'] = 1
     
     return details
 
 
-def kill_process_via_host(pid, signal_name):
+def kill_process_via_host(pid: int, signal_name: str) -> None:
     """Send a signal to a process on the host system.
     
     Uses flatpak-spawn --host to send signals to host processes
@@ -206,7 +220,7 @@ def kill_process_via_host(pid, signal_name):
         raise ProcessLookupError(error_msg)
 
 
-def renice_process_via_host(pid, nice_value):
+def renice_process_via_host(pid: int, nice_value: int) -> None:
     """Change the nice value of a process.
     
     Args:

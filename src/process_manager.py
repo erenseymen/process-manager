@@ -1,25 +1,50 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Process management functions
 
+"""Process management module providing process listing and control operations."""
+
+from __future__ import annotations
+
 import os
 import signal
+from typing import TYPE_CHECKING, Dict, List, Any
 
 from .ps_commands import (
-    is_flatpak,
     get_processes_via_ps,
     get_process_details_via_ps,
     kill_process_via_host,
     renice_process_via_host,
 )
 
+if TYPE_CHECKING:
+    from signal import Signals
+
+
+# Signal number to name mapping
+_SIGNAL_NAMES: Dict[int, str] = {
+    signal.SIGTERM: 'TERM',
+    signal.SIGKILL: 'KILL',
+    signal.SIGINT: 'INT',
+    signal.SIGHUP: 'HUP',
+    signal.SIGSTOP: 'STOP',
+    signal.SIGCONT: 'CONT',
+}
+
 
 class ProcessManager:
-    """Manages process information and operations."""
+    """Manages process information and operations.
     
-    def __init__(self):
-        self._is_flatpak = is_flatpak()
+    This class provides methods to list processes, send signals to processes,
+    change process priority, and get detailed process information.
+    """
     
-    def get_processes(self, show_all=True, my_processes=False, active_only=False, show_kernel_threads=False):
+    def get_processes(
+        self,
+        show_all: bool = True,
+        my_processes: bool = False,
+        active_only: bool = False,
+        show_kernel_threads: bool = False
+    ) -> List[Dict[str, Any]]:
         """Get list of all processes with their information.
         
         Args:
@@ -35,7 +60,7 @@ class ProcessManager:
         current_uid = os.getuid()
         return get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_threads)
     
-    def kill_process(self, pid, signal_num=signal.SIGTERM):
+    def kill_process(self, pid: int, signal_num: int = signal.SIGTERM) -> None:
         """Send a signal to a process.
         
         Args:
@@ -45,22 +70,10 @@ class ProcessManager:
         Raises:
             ProcessLookupError: If the signal could not be sent.
         """
-        signal_name = self._get_signal_name(signal_num)
+        signal_name = _SIGNAL_NAMES.get(signal_num, str(signal_num))
         kill_process_via_host(pid, signal_name)
     
-    def _get_signal_name(self, signal_num):
-        """Get the signal name from signal number."""
-        signal_names = {
-            signal.SIGTERM: 'TERM',
-            signal.SIGKILL: 'KILL',
-            signal.SIGINT: 'INT',
-            signal.SIGHUP: 'HUP',
-            signal.SIGSTOP: 'STOP',
-            signal.SIGCONT: 'CONT',
-        }
-        return signal_names.get(signal_num, str(signal_num))
-    
-    def renice_process(self, pid, nice_value):
+    def renice_process(self, pid: int, nice_value: int) -> None:
         """Change the nice value of a process.
         
         Args:
@@ -73,7 +86,7 @@ class ProcessManager:
         """
         renice_process_via_host(pid, nice_value)
     
-    def get_process_details(self, pid):
+    def get_process_details(self, pid: int) -> Dict[str, Any]:
         """Get detailed information about a process.
         
         Args:

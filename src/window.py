@@ -534,8 +534,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Custom sorting for numeric columns
         self.list_store.set_sort_func(1, self.sort_percent, None)  # CPU
         self.list_store.set_sort_func(2, self.sort_memory, None)   # Memory
-        self.list_store.set_sort_func(5, self.sort_numeric, None)  # Nice
-        self.list_store.set_sort_func(6, self.sort_numeric, None)  # PID
+        self.list_store.set_sort_func(5, self.sort_nice, None)     # Nice
+        self.list_store.set_sort_func(6, self.sort_pid, None)      # PID
         
         # Restore saved sort column and order
         saved_column = self.settings.get("sort_column")
@@ -585,11 +585,19 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         val2 = parse_mem(model.get_value(iter2, 2))
         return (val1 > val2) - (val1 < val2)
     
-    def sort_numeric(self, model, iter1, iter2, user_data):
-        """Sort by numeric value."""
-        col = 6  # Default to PID
-        val1 = model.get_value(iter1, col)
-        val2 = model.get_value(iter2, col)
+    def sort_nice(self, model, iter1, iter2, user_data):
+        """Sort by nice value (column 5)."""
+        try:
+            val1 = int(model.get_value(iter1, 5))
+            val2 = int(model.get_value(iter2, 5))
+        except ValueError:
+            return 0
+        return (val1 > val2) - (val1 < val2)
+    
+    def sort_pid(self, model, iter1, iter2, user_data):
+        """Sort by PID value (column 6)."""
+        val1 = model.get_value(iter1, 6)
+        val2 = model.get_value(iter2, 6)
         return (val1 > val2) - (val1 < val2)
     
     def create_selection_panel(self):

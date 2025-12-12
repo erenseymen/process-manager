@@ -1,17 +1,30 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Preferences dialog
 
+"""Preferences dialog for configuring application settings."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw
 
+if TYPE_CHECKING:
+    from .settings import Settings
+
 
 class PreferencesDialog(Adw.PreferencesWindow):
-    """Application preferences dialog."""
+    """Application preferences dialog.
     
-    def __init__(self, parent, settings):
+    Provides UI for configuring refresh interval, display options,
+    theme settings, and warning thresholds.
+    """
+    
+    def __init__(self, parent: Gtk.Window, settings: Settings) -> None:
         super().__init__(
             transient_for=parent,
             title="Preferences",
@@ -19,11 +32,16 @@ class PreferencesDialog(Adw.PreferencesWindow):
         )
         
         self.settings = settings
-        self.build_ui()
+        self._build_ui()
     
-    def build_ui(self):
+    def _build_ui(self) -> None:
         """Build the preferences UI."""
-        # General page
+        self._build_general_page()
+        self._build_appearance_page()
+        self._build_thresholds_page()
+    
+    def _build_general_page(self) -> None:
+        """Build the General preferences page."""
         general_page = Adw.PreferencesPage()
         general_page.set_title("General")
         general_page.set_icon_name("preferences-system-symbolic")
@@ -40,7 +58,7 @@ class PreferencesDialog(Adw.PreferencesWindow):
         refresh_row.set_title("Refresh Interval")
         refresh_row.set_subtitle("Time between process list updates (milliseconds)")
         refresh_row.set_value(self.settings.get("refresh_interval"))
-        refresh_row.connect("notify::value", self.on_refresh_changed)
+        refresh_row.connect("notify::value", self._on_refresh_changed)
         behavior_group.add(refresh_row)
         
         # Confirm kill
@@ -48,7 +66,7 @@ class PreferencesDialog(Adw.PreferencesWindow):
         confirm_row.set_title("Confirm Before Killing")
         confirm_row.set_subtitle("Show confirmation dialog before ending processes")
         confirm_row.set_active(self.settings.get("confirm_kill"))
-        confirm_row.connect("notify::active", self.on_confirm_changed)
+        confirm_row.connect("notify::active", self._on_confirm_changed)
         behavior_group.add(confirm_row)
         
         # Display group
@@ -62,10 +80,29 @@ class PreferencesDialog(Adw.PreferencesWindow):
         kernel_row.set_title("Show Kernel Threads")
         kernel_row.set_subtitle("Show kernel threads in the process list")
         kernel_row.set_active(self.settings.get("show_kernel_threads"))
-        kernel_row.connect("notify::active", self.on_kernel_changed)
+        kernel_row.connect("notify::active", self._on_kernel_changed)
         display_group.add(kernel_row)
         
-        # Appearance page
+        # About section
+        about_group = Adw.PreferencesGroup()
+        about_group.set_title("About")
+        general_page.add(about_group)
+        
+        # Reset to defaults
+        reset_row = Adw.ActionRow()
+        reset_row.set_title("Reset to Defaults")
+        reset_row.set_subtitle("Restore all settings to their default values")
+        
+        reset_button = Gtk.Button(label="Reset")
+        reset_button.set_valign(Gtk.Align.CENTER)
+        reset_button.add_css_class("destructive-action")
+        reset_button.connect("clicked", self._on_reset_clicked)
+        reset_row.add_suffix(reset_button)
+        reset_row.set_activatable_widget(reset_button)
+        about_group.add(reset_row)
+    
+    def _build_appearance_page(self) -> None:
+        """Build the Appearance preferences page."""
         appearance_page = Adw.PreferencesPage()
         appearance_page.set_title("Appearance")
         appearance_page.set_icon_name("applications-graphics-symbolic")
@@ -90,10 +127,11 @@ class PreferencesDialog(Adw.PreferencesWindow):
         current_theme = self.settings.get("theme")
         theme_idx = {"system": 0, "light": 1, "dark": 2}.get(current_theme, 0)
         theme_row.set_selected(theme_idx)
-        theme_row.connect("notify::selected", self.on_theme_changed)
+        theme_row.connect("notify::selected", self._on_theme_changed)
         theme_group.add(theme_row)
-        
-        # Thresholds page
+    
+    def _build_thresholds_page(self) -> None:
+        """Build the Thresholds preferences page."""
         thresholds_page = Adw.PreferencesPage()
         thresholds_page.set_title("Thresholds")
         thresholds_page.set_icon_name("dialog-warning-symbolic")
@@ -110,7 +148,7 @@ class PreferencesDialog(Adw.PreferencesWindow):
         cpu_change_row.set_title("CPU Change Threshold")
         cpu_change_row.set_subtitle("Show processes when CPU usage changes by this percentage")
         cpu_change_row.set_value(self.settings.get("cpu_change_threshold"))
-        cpu_change_row.connect("notify::value", self.on_cpu_change_threshold_changed)
+        cpu_change_row.connect("notify::value", self._on_cpu_change_threshold_changed)
         change_group.add(cpu_change_row)
         
         # Memory change threshold
@@ -118,13 +156,13 @@ class PreferencesDialog(Adw.PreferencesWindow):
         mem_change_row.set_title("Memory Change Threshold")
         mem_change_row.set_subtitle("Show processes when memory usage changes by this percentage")
         mem_change_row.set_value(self.settings.get("memory_change_threshold"))
-        mem_change_row.connect("notify::value", self.on_mem_change_threshold_changed)
+        mem_change_row.connect("notify::value", self._on_mem_change_threshold_changed)
         change_group.add(mem_change_row)
         
-        # Warning thresholds group (for row highlighting)
+        # Warning thresholds group (for future row highlighting feature)
         warning_group = Adw.PreferencesGroup()
         warning_group.set_title("Warning Thresholds")
-        warning_group.set_description("Thresholds for highlighting high resource usage in list")
+        warning_group.set_description("Thresholds for highlighting high resource usage (planned feature)")
         thresholds_page.add(warning_group)
         
         # CPU threshold
@@ -132,7 +170,7 @@ class PreferencesDialog(Adw.PreferencesWindow):
         cpu_row.set_title("CPU Warning Threshold")
         cpu_row.set_subtitle("Highlight processes using more than this CPU percentage")
         cpu_row.set_value(self.settings.get("cpu_threshold_warning"))
-        cpu_row.connect("notify::value", self.on_cpu_threshold_changed)
+        cpu_row.connect("notify::value", self._on_cpu_threshold_changed)
         warning_group.add(cpu_row)
         
         # Memory threshold
@@ -140,41 +178,23 @@ class PreferencesDialog(Adw.PreferencesWindow):
         mem_row.set_title("Memory Warning Threshold")
         mem_row.set_subtitle("Highlight processes using more than this memory percentage")
         mem_row.set_value(self.settings.get("memory_threshold_warning"))
-        mem_row.connect("notify::value", self.on_mem_threshold_changed)
+        mem_row.connect("notify::value", self._on_mem_threshold_changed)
         warning_group.add(mem_row)
-        
-        # About section
-        about_group = Adw.PreferencesGroup()
-        about_group.set_title("About")
-        general_page.add(about_group)
-        
-        # Reset to defaults
-        reset_row = Adw.ActionRow()
-        reset_row.set_title("Reset to Defaults")
-        reset_row.set_subtitle("Restore all settings to their default values")
-        
-        reset_button = Gtk.Button(label="Reset")
-        reset_button.set_valign(Gtk.Align.CENTER)
-        reset_button.add_css_class("destructive-action")
-        reset_button.connect("clicked", self.on_reset_clicked)
-        reset_row.add_suffix(reset_button)
-        reset_row.set_activatable_widget(reset_button)
-        about_group.add(reset_row)
     
-    def on_refresh_changed(self, row, param):
+    def _on_refresh_changed(self, row: Adw.SpinRow, param: Any) -> None:
         """Handle refresh interval change."""
         self.settings.set("refresh_interval", int(row.get_value()))
     
-    def on_confirm_changed(self, row, param):
+    def _on_confirm_changed(self, row: Adw.SwitchRow, param: Any) -> None:
         """Handle confirm kill change."""
         self.settings.set("confirm_kill", row.get_active())
     
-    def on_kernel_changed(self, row, param):
+    def _on_kernel_changed(self, row: Adw.SwitchRow, param: Any) -> None:
         """Handle show kernel threads change."""
         self.settings.set("show_kernel_threads", row.get_active())
     
-    def on_theme_changed(self, row, param):
-        """Handle theme change."""
+    def _on_theme_changed(self, row: Adw.ComboRow, param: Any) -> None:
+        """Handle theme change and apply immediately."""
         themes = ["system", "light", "dark"]
         selected = row.get_selected()
         self.settings.set("theme", themes[selected])
@@ -188,24 +208,24 @@ class PreferencesDialog(Adw.PreferencesWindow):
         else:
             style_manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
     
-    def on_cpu_change_threshold_changed(self, row, param):
+    def _on_cpu_change_threshold_changed(self, row: Adw.SpinRow, param: Any) -> None:
         """Handle CPU change threshold change."""
         self.settings.set("cpu_change_threshold", int(row.get_value()))
     
-    def on_mem_change_threshold_changed(self, row, param):
+    def _on_mem_change_threshold_changed(self, row: Adw.SpinRow, param: Any) -> None:
         """Handle memory change threshold change."""
         self.settings.set("memory_change_threshold", int(row.get_value()))
     
-    def on_cpu_threshold_changed(self, row, param):
+    def _on_cpu_threshold_changed(self, row: Adw.SpinRow, param: Any) -> None:
         """Handle CPU threshold change."""
         self.settings.set("cpu_threshold_warning", int(row.get_value()))
     
-    def on_mem_threshold_changed(self, row, param):
+    def _on_mem_threshold_changed(self, row: Adw.SpinRow, param: Any) -> None:
         """Handle memory threshold change."""
         self.settings.set("memory_threshold_warning", int(row.get_value()))
     
-    def on_reset_clicked(self, button):
-        """Handle reset to defaults."""
+    def _on_reset_clicked(self, button: Gtk.Button) -> None:
+        """Handle reset to defaults button click."""
         dialog = Adw.MessageDialog(
             transient_for=self,
             heading="Reset Settings?",
@@ -214,10 +234,10 @@ class PreferencesDialog(Adw.PreferencesWindow):
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("reset", "Reset")
         dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", self.on_reset_response)
+        dialog.connect("response", self._on_reset_response)
         dialog.present()
     
-    def on_reset_response(self, dialog, response):
+    def _on_reset_response(self, dialog: Adw.MessageDialog, response: str) -> None:
         """Handle reset confirmation response."""
         if response == "reset":
             self.settings.reset()

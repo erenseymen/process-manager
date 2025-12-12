@@ -108,7 +108,8 @@ meson compile -C build
 ```
 process-manager/
 ├── src/
-│   ├── __init__.py
+│   ├── __init__.py          # Package initialization with exports
+│   ├── constants.py         # Application constants and CSS styles
 │   ├── main.py              # Application entry point
 │   ├── window.py            # Main window UI
 │   ├── process_manager.py   # Process management interface
@@ -126,6 +127,21 @@ process-manager/
 ├── meson.build              # Build configuration
 └── io.github.processmanager.ProcessManager.json  # Flatpak manifest
 ```
+
+### Code Architecture
+
+The application follows a modular architecture:
+
+- **constants.py**: Centralized application constants including APP_ID, version, and CSS styles
+- **main.py**: Application class with GTK/Adwaita integration and action handling
+- **window.py**: Main window with process list, selection panel, and system stats bar
+- **process_manager.py**: High-level process operations (list, kill, renice)
+- **ps_commands.py**: Low-level system commands for process information retrieval
+- **system_stats.py**: System memory, CPU, and load average statistics
+- **settings.py**: Persistent settings management with JSON storage
+- **preferences.py**: User preferences dialog with categorized settings
+
+All modules use type hints for improved code quality and IDE support.
 
 ## Configuration
 

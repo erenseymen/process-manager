@@ -21,6 +21,7 @@ configure_file(
 
 process_manager_sources = [
   '__init__.py',
+  'constants.py',
   'main.py',
   'window.py',
   'process_manager.py',
