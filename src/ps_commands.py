@@ -31,18 +31,14 @@ def run_host_command(cmd):
     return result.stdout
 
 
-def get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_threads, is_kernel_thread_func):
-    """Get processes using ps command via flatpak-spawn --host.
-    
-    This function is primarily used when running in a Flatpak sandbox,
-    where direct /proc access may be limited.
+def get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_threads):
+    """Get processes using ps command.
     
     Args:
         current_uid: The current user's UID for filtering.
         my_processes: If True, only return processes owned by current user.
         active_only: If True, only return processes with CPU > 0.1%.
         show_kernel_threads: If True, include kernel threads in results.
-        is_kernel_thread_func: Callback function to check if a process is a kernel thread.
         
     Returns:
         List of process dictionaries with keys:
@@ -83,9 +79,9 @@ def get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_thr
                 state = parts[12]
                 ppid = int(parts[13])
                 
-                # Filter kernel threads (PPID 2 is kthreadd, or check if executable doesn't exist)
+                # Filter kernel threads (PPID 2 is kthreadd)
                 if not show_kernel_threads:
-                    if is_kernel_thread_func(pid, ppid):
+                    if ppid == 2 or pid == 2:
                         continue
                 
                 # Apply filters
@@ -116,11 +112,79 @@ def get_processes_via_ps(current_uid, my_processes, active_only, show_kernel_thr
     return processes
 
 
+def get_process_details_via_ps(pid):
+    """Get detailed information about a process using ps and other commands.
+    
+    Args:
+        pid: The process ID to get details for.
+        
+    Returns:
+        Dictionary with process details: cmdline, cwd, exe, environ, fd_count, threads
+    """
+    details = {}
+    
+    try:
+        # Get command line using ps
+        cmd = ['ps', '-p', str(pid), '-o', 'args=']
+        output = run_host_command(cmd).strip()
+        details['cmdline'] = output if output else '[kernel thread]'
+    except Exception:
+        details['cmdline'] = 'N/A'
+    
+    try:
+        # Get working directory using pwdx
+        cmd = ['pwdx', str(pid)]
+        output = run_host_command(cmd).strip()
+        # Output format: "pid: /path/to/cwd"
+        if ':' in output:
+            details['cwd'] = output.split(':', 1)[1].strip()
+        else:
+            details['cwd'] = 'N/A'
+    except Exception:
+        details['cwd'] = 'N/A'
+    
+    try:
+        # Get executable path using readlink
+        cmd = ['readlink', '-f', f'/proc/{pid}/exe']
+        output = run_host_command(cmd).strip()
+        details['exe'] = output if output else 'N/A'
+    except Exception:
+        details['exe'] = 'N/A'
+    
+    try:
+        # Get environment variables using cat
+        cmd = ['cat', f'/proc/{pid}/environ']
+        output = run_host_command(cmd)
+        environ = output.replace('\x00', '\n')
+        details['environ'] = environ[:2000] if environ else 'N/A'
+    except Exception:
+        details['environ'] = 'N/A'
+    
+    try:
+        # Get file descriptor count using ls
+        cmd = ['ls', '-1', f'/proc/{pid}/fd']
+        output = run_host_command(cmd)
+        fd_count = len(output.strip().split('\n')) if output.strip() else 0
+        details['fd_count'] = fd_count
+    except Exception:
+        details['fd_count'] = 0
+    
+    try:
+        # Get thread count using ps
+        cmd = ['ps', '-p', str(pid), '-o', 'nlwp=']
+        output = run_host_command(cmd).strip()
+        details['threads'] = int(output) if output else 1
+    except Exception:
+        details['threads'] = 1
+    
+    return details
+
+
 def kill_process_via_host(pid, signal_name):
     """Send a signal to a process on the host system.
     
     Uses flatpak-spawn --host to send signals to host processes
-    since os.kill() only works within the sandbox.
+    when running in Flatpak sandbox.
     
     Args:
         pid: The process ID to signal.
@@ -130,12 +194,39 @@ def kill_process_via_host(pid, signal_name):
         ProcessLookupError: If the signal could not be sent.
     """
     cmd = ['kill', f'-{signal_name}', str(pid)]
-    result = subprocess.run(
-        ['flatpak-spawn', '--host'] + cmd,
-        capture_output=True,
-        text=True
-    )
+    
+    if is_flatpak():
+        full_cmd = ['flatpak-spawn', '--host'] + cmd
+    else:
+        full_cmd = cmd
+    
+    result = subprocess.run(full_cmd, capture_output=True, text=True)
     if result.returncode != 0:
         error_msg = result.stderr.strip() or f"Failed to send {signal_name} to process {pid}"
         raise ProcessLookupError(error_msg)
 
+
+def renice_process_via_host(pid, nice_value):
+    """Change the nice value of a process.
+    
+    Args:
+        pid: The process ID to renice.
+        nice_value: The new nice value (-20 to 19).
+        
+    Raises:
+        PermissionError: If permission is denied.
+        ProcessLookupError: If the process doesn't exist.
+    """
+    cmd = ['renice', str(nice_value), '-p', str(pid)]
+    
+    if is_flatpak():
+        full_cmd = ['flatpak-spawn', '--host'] + cmd
+    else:
+        full_cmd = cmd
+    
+    result = subprocess.run(full_cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        error_msg = result.stderr.strip() or f"Failed to renice process {pid}"
+        if 'Permission denied' in error_msg or 'permission denied' in error_msg.lower():
+            raise PermissionError(error_msg)
+        raise ProcessLookupError(error_msg)
