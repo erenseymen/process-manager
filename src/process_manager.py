@@ -4,8 +4,26 @@
 import os
 import signal
 import pwd
+import subprocess
 from datetime import datetime
 from pathlib import Path
+
+
+def is_flatpak():
+    """Check if running inside a Flatpak sandbox."""
+    return os.path.exists('/.flatpak-info')
+
+
+def get_host_proc_path():
+    """Get the path to host /proc.
+    
+    When running in Flatpak, we need to access the host's /proc
+    through /run/host/proc if available, otherwise fall back to /proc.
+    """
+    # Try /run/host/proc first (available with --filesystem=host)
+    if os.path.exists('/run/host/proc') and os.path.isdir('/run/host/proc'):
+        return Path('/run/host/proc')
+    return Path('/proc')
 
 
 class ProcessManager:
@@ -14,6 +32,8 @@ class ProcessManager:
     def __init__(self):
         self._cpu_times = {}  # Cache for CPU time calculations
         self._last_update = 0
+        self._proc_path = get_host_proc_path()
+        self._is_flatpak = is_flatpak()
     
     def get_processes(self, show_all=True, my_processes=False, active_only=False):
         """Get list of all processes with their information."""
@@ -23,7 +43,7 @@ class ProcessManager:
         # Get system stats for CPU calculation
         total_cpu_time = self._get_total_cpu_time()
         
-        for pid_dir in Path('/proc').iterdir():
+        for pid_dir in self._proc_path.iterdir():
             if not pid_dir.name.isdigit():
                 continue
             
@@ -50,7 +70,7 @@ class ProcessManager:
     
     def _get_process_info(self, pid, total_cpu_time):
         """Get information for a single process."""
-        proc_path = Path(f'/proc/{pid}')
+        proc_path = self._proc_path / str(pid)
         
         try:
             # Read process stat
@@ -135,7 +155,7 @@ class ProcessManager:
     def _get_total_cpu_time(self):
         """Get total CPU time from /proc/stat."""
         try:
-            with open('/proc/stat', 'r') as f:
+            with open(self._proc_path / 'stat', 'r') as f:
                 cpu_line = f.readline()
             
             parts = cpu_line.split()
@@ -169,7 +189,7 @@ class ProcessManager:
     def _get_boot_time(self):
         """Get system boot time."""
         try:
-            with open('/proc/stat', 'r') as f:
+            with open(self._proc_path / 'stat', 'r') as f:
                 for line in f:
                     if line.startswith('btime'):
                         return int(line.split()[1])
@@ -187,7 +207,7 @@ class ProcessManager:
     
     def get_process_details(self, pid):
         """Get detailed information about a process."""
-        proc_path = Path(f'/proc/{pid}')
+        proc_path = self._proc_path / str(pid)
         
         details = {}
         

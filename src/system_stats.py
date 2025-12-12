@@ -1,18 +1,29 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # System statistics
 
+import os
 from pathlib import Path
+
+
+def get_host_proc_path():
+    """Get the path to host /proc."""
+    if os.path.exists('/run/host/proc') and os.path.isdir('/run/host/proc'):
+        return Path('/run/host/proc')
+    return Path('/proc')
 
 
 class SystemStats:
     """System memory and CPU statistics."""
+    
+    def __init__(self):
+        self._proc_path = get_host_proc_path()
     
     def get_memory_info(self):
         """Get memory and swap information."""
         meminfo = {}
         
         try:
-            with open('/proc/meminfo', 'r') as f:
+            with open(self._proc_path / 'meminfo', 'r') as f:
                 for line in f:
                     parts = line.split()
                     if len(parts) >= 2:
@@ -69,7 +80,7 @@ class SystemStats:
         }
         
         try:
-            with open('/proc/cpuinfo', 'r') as f:
+            with open(self._proc_path / 'cpuinfo', 'r') as f:
                 for line in f:
                     if line.startswith('model name'):
                         cpu_info['model'] = line.split(':')[1].strip()
@@ -87,7 +98,7 @@ class SystemStats:
     def get_uptime(self):
         """Get system uptime in seconds."""
         try:
-            with open('/proc/uptime', 'r') as f:
+            with open(self._proc_path / 'uptime', 'r') as f:
                 uptime_seconds = float(f.read().split()[0])
                 return uptime_seconds
         except:
@@ -111,7 +122,7 @@ class SystemStats:
     def get_load_average(self):
         """Get system load average."""
         try:
-            with open('/proc/loadavg', 'r') as f:
+            with open(self._proc_path / 'loadavg', 'r') as f:
                 parts = f.read().split()
                 return {
                     '1min': float(parts[0]),

@@ -10,7 +10,7 @@
         "--socket=wayland",
         "--device=dri",
         "--filesystem=host:ro",
-        "--filesystem=/proc:ro",
+        "--filesystem=/run/host/proc:ro",
         "--filesystem=/sys:ro",
         "--talk-name=org.freedesktop.Flatpak"
     ],
