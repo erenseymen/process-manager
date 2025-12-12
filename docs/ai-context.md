@@ -19,12 +19,14 @@ This file contains important context about the codebase for AI assistants.
 - Process list columns dynamically added when GPU tab active: GPU usage, encoding usage, decoding usage (per GPU type)
 - GPU stats bar updates conditionally based on active tab
 
-### Intel GPU Per-Process Stats (2025-12-12)
-- Uses `intel_gpu_top` as the primary dependency for Intel GPU process monitoring
-- Supports JSON output format (`-J` flag) and CSV format (`-c` flag) as fallback
-- Tries JSON format first, then CSV if JSON parsing fails
-- Includes processes even with 0% usage to make them visible in the GPU tab
-- Video engine usage shown as encoding/decoding (Intel HW encoder/decoder)
+### Intel GPU Per-Process Stats (2025-12-12, updated)
+- Uses `intel_gpu_top -J -o -` with sudo and timeout for Intel GPU process monitoring
+- JSON output is an array of readings; parser extracts last complete object
+- Client info structure: `clients -> {client_id} -> {name, pid, engine-classes}`
+- Engine classes use hyphen: `engine-classes -> Render/3D|Video -> busy` (string values)
+- `_parse_intel_gpu_top_json()` helper handles incomplete JSON arrays (from timeout kill)
+- `run_host_command()` supports timeout parameter for long-running commands
+- Video engine (`Video`) usage mapped to both encoding and decoding columns
 
 ### Design Patterns
 - Type hints used throughout for improved IDE support
