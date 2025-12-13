@@ -36,5 +36,24 @@ process_manager_sources = [
   'preferences.py',
 ]
 
+# Dialog classes
+dialogs_sources = [
+  'dialogs/__init__.py',
+  'dialogs/process_details.py',
+  'dialogs/renice.py',
+  'dialogs/export.py',
+  'dialogs/shortcuts.py',
+  'dialogs/termination.py',
+]
+
+# Tab mixin classes
+tabs_sources = [
+  'tabs/__init__.py',
+  'tabs/gpu_tab.py',
+  'tabs/ports_tab.py',
+]
+
 install_data(process_manager_sources, install_dir: moduledir)
+install_data(dialogs_sources, install_dir: moduledir / 'dialogs')
+install_data(tabs_sources, install_dir: moduledir / 'tabs')
 

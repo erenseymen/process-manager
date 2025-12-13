@@ -6,6 +6,39 @@ This file contains important context about the codebase for AI assistants.
 
 <!-- Add new context entries below this line -->
 
+## Module Structure (2025-12-13)
+
+### Code Organization
+The codebase is organized into modular packages for maintainability:
+
+```
+src/
+├── window.py           # Main ProcessManagerWindow (~2200 lines)
+├── dialogs/            # Dialog classes (extracted from window.py)
+│   ├── __init__.py     # Re-exports all dialogs
+│   ├── process_details.py  # ProcessDetailsDialog
+│   ├── renice.py           # ReniceDialog
+│   ├── export.py           # ExportDialog
+│   ├── shortcuts.py        # ShortcutsWindow
+│   └── termination.py      # TerminationDialog
+├── tabs/               # Tab mixin classes
+│   ├── __init__.py     # Re-exports mixins
+│   ├── gpu_tab.py      # GPUTabMixin
+│   └── ports_tab.py    # PortsTabMixin
+└── [other modules...]
+```
+
+### Mixin Pattern for Tabs
+- `ProcessManagerWindow` uses multiple inheritance: `GPUTabMixin`, `PortsTabMixin`, `Adw.ApplicationWindow`
+- Each mixin provides methods for its respective tab (creation, refresh, event handling)
+- Mixins expect certain attributes to exist on `self` (e.g., `settings`, `process_manager`, `selected_pids`)
+- This pattern separates tab-specific logic while maintaining a single window class
+
+### Dialog Package
+- All dialogs are standalone `Adw.Window` subclasses
+- Dialogs receive `parent` and `process_manager` as constructor arguments (no circular imports)
+- Import via: `from .dialogs import ProcessDetailsDialog, ReniceDialog, ...`
+
 ## Implementation Patterns (2025-12-12)
 
 ### UI Component Architecture
