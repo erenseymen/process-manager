@@ -344,6 +344,8 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             # Refresh ports
             self.refresh_ports()
             self.update_system_stats()  # Update stats to hide GPU section
+            # Update selection panel visibility
+            self.update_selection_panel()
         else:
             self.current_tab = 'processes'
             # Show tree view button with normal label for Processes tab
