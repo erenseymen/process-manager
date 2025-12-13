@@ -2539,7 +2539,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         return False  # Don't repeat
     
     def on_tree_view_key_pressed(self, controller, keyval, keycode, state):
-        """Handle key press in tree view - intercept Space and Enter before TreeView handles it."""
+        """Handle key press in tree view - intercept shortcuts before TreeView handles them."""
         has_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
         has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
@@ -2549,6 +2549,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             current_name = self.view_stack.get_visible_child_name()
             if current_name == "processes":
                 self.view_stack.set_visible_child_name("gpu")
+            elif current_name == "gpu":
+                self.view_stack.set_visible_child_name("ports")
             else:
                 self.view_stack.set_visible_child_name("processes")
             return True  # Event handled, don't let TreeView process it
@@ -2557,6 +2559,20 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if keyval == Gdk.KEY_space and not has_ctrl and not has_alt and not has_shift:
             self.auto_refresh_button.set_active(not self.auto_refresh_button.get_active())
             return True  # Event handled, don't let TreeView process it
+        
+        # Handle Delete - terminate selected processes (SIGTERM)
+        if keyval == Gdk.KEY_Delete and not has_shift and not has_ctrl and not has_alt:
+            if self.selected_pids:
+                self.terminate_selected_processes()
+                return True  # Event handled
+            return False
+        
+        # Handle Shift+Delete - force kill selected processes (SIGKILL)
+        if keyval == Gdk.KEY_Delete and has_shift and not has_ctrl and not has_alt:
+            if self.selected_pids:
+                self.force_kill_selected_processes()
+                return True  # Event handled
+            return False
         
         # Handle Enter - show process details dialog
         if (keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter) and not has_ctrl and not has_alt and not has_shift:
@@ -2577,6 +2593,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             current_name = self.view_stack.get_visible_child_name()
             if current_name == "processes":
                 self.view_stack.set_visible_child_name("gpu")
+            elif current_name == "gpu":
+                self.view_stack.set_visible_child_name("ports")
             else:
                 self.view_stack.set_visible_child_name("processes")
             return True  # Event handled
@@ -2865,8 +2883,42 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def on_ports_tree_view_key_pressed(self, controller, keyval, keycode, state):
         """Handle key press events in ports tree view."""
+        has_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        
+        # Handle Ctrl+TAB for tab switching
+        if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
+            current_name = self.view_stack.get_visible_child_name()
+            if current_name == "processes":
+                self.view_stack.set_visible_child_name("gpu")
+            elif current_name == "gpu":
+                self.view_stack.set_visible_child_name("ports")
+            else:
+                self.view_stack.set_visible_child_name("processes")
+            return True  # Event handled
+        
+        # Handle Space - toggle Play/Pause auto refresh
+        if keyval == Gdk.KEY_space and not has_ctrl and not has_alt and not has_shift:
+            self.auto_refresh_button.set_active(not self.auto_refresh_button.get_active())
+            return True  # Event handled
+        
+        # Handle Delete - terminate selected processes (SIGTERM)
+        if keyval == Gdk.KEY_Delete and not has_shift and not has_ctrl and not has_alt:
+            if self.selected_pids:
+                self.terminate_selected_processes()
+                return True  # Event handled
+            return False
+        
+        # Handle Shift+Delete - force kill selected processes (SIGKILL)
+        if keyval == Gdk.KEY_Delete and has_shift and not has_ctrl and not has_alt:
+            if self.selected_pids:
+                self.force_kill_selected_processes()
+                return True  # Event handled
+            return False
+        
         # Enter key - show process details
-        if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
+        if (keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter) and not has_ctrl and not has_alt and not has_shift:
             selection = self.ports_tree_view.get_selection()
             model, paths = selection.get_selected_rows()
             if paths:
