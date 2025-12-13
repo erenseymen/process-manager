@@ -21,7 +21,7 @@ class PreferencesDialog(Adw.PreferencesWindow):
     """Application preferences dialog.
     
     Provides UI for configuring refresh interval, display options,
-    theme settings, warning thresholds, and alert rules.
+    theme settings, and warning thresholds.
     """
     
     def __init__(self, parent: Gtk.Window, settings: Settings) -> None:

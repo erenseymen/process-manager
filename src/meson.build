@@ -33,6 +33,7 @@ process_manager_sources = [
   'process_history.py',
   'settings.py',
   'preferences.py',
+  'utils.py',
 ]
 
 # Dialog classes

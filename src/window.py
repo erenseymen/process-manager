@@ -22,6 +22,8 @@ from .dialogs import (
     TerminationDialog,
 )
 from .tabs import GPUTabMixin, PortsTabMixin
+from .utils import parse_size_str
+
 
 
 # NOTE: All dialog classes have been moved to src/dialogs/ package
@@ -253,8 +255,9 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
     
     
     
-    def create_selection_panel_for_tab(self, tab_name):
-        """Create a selection panel for a specific tab (reuses the same selected_pids)."""
+
+    def _create_selection_panel_ui(self):
+        """Create the UI elements for a selection panel."""
         # Main container
         panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         panel_box.add_css_class("selection-panel")
@@ -313,6 +316,13 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         
         # Initially hidden
         panel_box.set_visible(False)
+        
+        return panel_box, title_label, selection_list
+
+    def create_selection_panel_for_tab(self, tab_name):
+
+        """Create a selection panel for a specific tab (reuses the same selected_pids)."""
+        panel_box, title_label, selection_list = self._create_selection_panel_ui()
         
         # Store references based on tab
         if tab_name == 'gpu':
@@ -562,20 +572,8 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
     
     def sort_memory(self, model, iter1, iter2, user_data):
         """Sort by memory value (reversed: highest first on initial click)."""
-        def parse_mem(s):
-            s = s.strip()
-            if s.endswith('GiB'):
-                return float(s[:-3]) * 1024 * 1024
-            elif s.endswith('MiB'):
-                return float(s[:-3]) * 1024
-            elif s.endswith('KiB'):
-                return float(s[:-3])
-            elif s.endswith('B'):
-                return float(s[:-1]) / 1024
-            return 0
-        
-        val1 = parse_mem(model.get_value(iter1, 2))
-        val2 = parse_mem(model.get_value(iter2, 2))
+        val1 = parse_size_str(model.get_value(iter1, 2))
+        val2 = parse_size_str(model.get_value(iter2, 2))
         # Reversed for descending on first click
         return (val2 > val1) - (val2 < val1)
     
@@ -606,90 +604,18 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         
         Parses values like "1.5 MiB", "256 KiB", "0 B" to bytes for comparison.
         """
-        def parse_rate(s):
-            s = s.strip()
-            if not s or s == '-':
-                return 0
-            try:
-                if s.endswith('/s'):
-                    s = s[:-2].strip()
-                if s.endswith('GiB'):
-                    return float(s[:-3]) * 1024 * 1024 * 1024
-                elif s.endswith('MiB'):
-                    return float(s[:-3]) * 1024 * 1024
-                elif s.endswith('KiB'):
-                    return float(s[:-3]) * 1024
-                elif s.endswith('B'):
-                    return float(s[:-1])
-                return float(s)
-            except (ValueError, AttributeError):
-                return 0
-        
-        val1 = parse_rate(model.get_value(iter1, col_id))
-        val2 = parse_rate(model.get_value(iter2, col_id))
+        val1 = parse_size_str(model.get_value(iter1, col_id))
+        val2 = parse_size_str(model.get_value(iter2, col_id))
         # Reversed for descending on first click (highest I/O first)
         return (val2 > val1) - (val2 < val1)
     
     def create_selection_panel(self):
         """Create the selection panel showing selected processes grouped by name with comparison bars."""
-        # Main container
-        panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        panel_box.add_css_class("selection-panel")
+        panel_box, title_label, selection_list = self._create_selection_panel_ui()
         
-        # Header row with title and clear button
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        header_box.set_margin_start(12)
-        header_box.set_margin_end(8)
-        header_box.set_margin_top(6)
-        header_box.set_margin_bottom(4)
-        
-        # Title label
-        self.selection_title = Gtk.Label(label="Selected:")
-        self.selection_title.add_css_class("heading")
-        self.selection_title.set_halign(Gtk.Align.START)
-        self.selection_title.set_hexpand(True)
-        header_box.append(self.selection_title)
-        
-        # End Process button
-        self.end_process_button = Gtk.Button()
-        self.end_process_button.set_icon_name("process-stop-symbolic")
-        self.end_process_button.set_tooltip_text("End Selected Processes")
-        self.end_process_button.add_css_class("destructive-action")
-        self.end_process_button.connect("clicked", self.on_kill_process)
-        header_box.append(self.end_process_button)
-        
-        # Clear all button
-        self.clear_button = Gtk.Button()
-        self.clear_button.set_icon_name("edit-clear-all-symbolic")
-        self.clear_button.set_tooltip_text("Clear Selection")
-        self.clear_button.add_css_class("flat")
-        self.clear_button.connect("clicked", self.on_clear_selection)
-        header_box.append(self.clear_button)
-        
-        panel_box.append(header_box)
-        
-        # Scrolled window for process comparison list
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_max_content_height(200)
-        scrolled.set_propagate_natural_height(True)
-        
-        # ListBox for vertical process comparison
-        self.selection_list = Gtk.ListBox()
-        self.selection_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.selection_list.add_css_class("selection-comparison-list")
-        self.selection_list.set_margin_start(12)
-        self.selection_list.set_margin_end(12)
-        self.selection_list.set_margin_bottom(8)
-        scrolled.set_child(self.selection_list)
-        panel_box.append(scrolled)
-        
-        # Bottom separator
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        panel_box.append(sep)
-        
-        # Initially hidden
-        panel_box.set_visible(False)
+        self.selection_title = title_label
+        self.selection_list = selection_list
+        # We don't need to store button references as they are not used elsewhere
         
         return panel_box
     

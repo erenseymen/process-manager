@@ -6,6 +6,8 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, GLib, Gio, Pango, Gdk
+from ..utils import parse_size_str
+
 
 
 class PortsTabMixin:
@@ -269,56 +271,14 @@ class PortsTabMixin:
     
     def sort_bytes(self, model, iter1, iter2, user_data):
         """Sort by bytes value (formatted string like '1.2 MiB')."""
-        def parse_bytes(s):
-            """Parse formatted bytes string to numeric value."""
-            if not s or s == '-':
-                return 0
-            s = s.strip()
-            try:
-                if s.endswith('TiB'):
-                    return float(s[:-3]) * 1024 ** 4
-                elif s.endswith('GiB'):
-                    return float(s[:-3]) * 1024 ** 3
-                elif s.endswith('MiB'):
-                    return float(s[:-3]) * 1024 ** 2
-                elif s.endswith('KiB'):
-                    return float(s[:-3]) * 1024
-                elif s.endswith('B'):
-                    return float(s[:-1])
-                else:
-                    return float(s)
-            except ValueError:
-                return 0
-        
-        val1 = parse_bytes(model.get_value(iter1, user_data))
-        val2 = parse_bytes(model.get_value(iter2, user_data))
+        val1 = parse_size_str(model.get_value(iter1, user_data))
+        val2 = parse_size_str(model.get_value(iter2, user_data))
         return (val2 > val1) - (val2 < val1)  # Descending by default
     
     def sort_bytes_rate(self, model, iter1, iter2, user_data):
         """Sort by bytes rate (formatted string like '1.2 MiB/s')."""
-        def parse_rate(s):
-            """Parse formatted rate string to numeric value."""
-            if not s or s == '-':
-                return 0
-            s = s.strip().rstrip('/s')
-            try:
-                if s.endswith('TiB'):
-                    return float(s[:-3]) * 1024 ** 4
-                elif s.endswith('GiB'):
-                    return float(s[:-3]) * 1024 ** 3
-                elif s.endswith('MiB'):
-                    return float(s[:-3]) * 1024 ** 2
-                elif s.endswith('KiB'):
-                    return float(s[:-3]) * 1024
-                elif s.endswith('B'):
-                    return float(s[:-1])
-                else:
-                    return float(s)
-            except ValueError:
-                return 0
-        
-        val1 = parse_rate(model.get_value(iter1, user_data))
-        val2 = parse_rate(model.get_value(iter2, user_data))
+        val1 = parse_size_str(model.get_value(iter1, user_data))
+        val2 = parse_size_str(model.get_value(iter2, user_data))
         return (val2 > val1) - (val2 < val1)  # Descending by default
     
     def refresh_ports(self):
