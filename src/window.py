@@ -1127,6 +1127,7 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         """Update the high usage panel with processes that changed significantly."""
         cpu_change_threshold = self.settings.get("cpu_change_threshold")
         mem_change_threshold = self.settings.get("memory_change_threshold")
+        show_kernel_threads = self.settings.get("show_kernel_threads", False)
         
         # Process names to filter out (our own refresh processes)
         filtered_names = {'ps', 'flatpak-spawn'}
@@ -1135,6 +1136,13 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         def should_filter_process(proc_name):
             """Check if process should be filtered from high usage panel."""
             return proc_name in filtered_names
+        
+        # Helper function to check if process is a kernel thread
+        def is_kernel_thread(proc):
+            """Check if process is a kernel thread (PPID 2 is kthreadd or PID 2)."""
+            ppid = proc.get('ppid', 0)
+            pid = proc.get('pid', 0)
+            return ppid == 2 or pid == 2
         
         # Get total memory for percentage calculation
         stats = self.system_stats.get_memory_info()
@@ -1153,6 +1161,10 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             # Skip our own refresh processes
             if should_filter_process(proc['name']):
                 continue
+            
+            # Skip kernel threads if not showing them
+            if not show_kernel_threads and is_kernel_thread(proc):
+                continue
             pid = proc['pid']
             current_pids.add(pid)
             cpu_percent = proc['cpu']
@@ -1161,7 +1173,8 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             current_stats[pid] = {
                 'cpu': cpu_percent,
                 'memory': mem_percent,
-                'name': proc['name']
+                'name': proc['name'],
+                'ppid': proc.get('ppid', 0)
             }
             
             # Check for changes if we have previous data
@@ -1207,6 +1220,13 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             # Skip our own refresh processes
             if should_filter_process(prev_info['name']):
                 continue
+            
+            # Skip kernel threads if not showing them
+            if not show_kernel_threads:
+                prev_ppid = prev_info.get('ppid', 0)
+                if prev_ppid == 2 or pid == 2:
+                    continue
+            
             ended_processes.append({
                 'pid': pid,
                 'name': prev_info['name'],
