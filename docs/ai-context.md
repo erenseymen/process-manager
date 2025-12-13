@@ -210,8 +210,11 @@ src/
 - **Tree View Button**: Visibility and functionality vary by tab
   - **GPU Tab**: Button is hidden (`set_visible(False)`) - no tree view functionality needed
   - **Ports Tab**: Button shows "Group Processes" label instead of "Tree View"
-    - When enabled, groups ports by PID and combines traffic statistics
-    - Shows aggregated data: combined bytes sent/received, connection counts
+    - When enabled, groups ports by PID using TreeStore with expandable rows
+    - Parent rows show aggregated data: combined bytes sent/received, connection counts
+    - Child rows show individual port details (expandable via toggle button)
+    - Uses `Gtk.TreeStore` for hierarchical display with `set_show_expanders(True)`
+    - `refresh_ports()` dynamically switches between `ListStore` and `TreeStore` based on mode
     - Setting: `group_processes_mode` (boolean) persists user preference
     - Handler: `on_tree_view_toggled()` detects current tab and delegates accordingly
   - **Processes Tab**: Button shows normal "Tree View" label (existing functionality)

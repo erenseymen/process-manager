@@ -43,7 +43,8 @@ class PortsTabMixin:
     
     def create_ports_view(self):
         """Create the ports list view."""
-        # Create list store: name, pid, protocol, local_address, local_port, remote_address, remote_port, state,
+        # Start with ListStore (will switch to TreeStore in refresh_ports if grouping is enabled)
+        # Columns: name, pid, protocol, local_address, local_port, remote_address, remote_port, state,
         # bytes_sent, bytes_recv, bytes_sent_rate, bytes_recv_rate
         self.ports_list_store = Gtk.ListStore(str, int, str, str, int, str, int, str, str, str, str, str)
         
@@ -52,6 +53,9 @@ class PortsTabMixin:
         tree_view.set_headers_clickable(True)
         tree_view.set_enable_search(False)
         tree_view.set_search_column(-1)  # Disable search completely
+        
+        # Expanders will be enabled in refresh_ports if grouping is enabled
+        tree_view.set_show_expanders(False)
         
         # Selection
         selection = tree_view.get_selection()
@@ -214,11 +218,28 @@ class PortsTabMixin:
         # Check if grouping is enabled
         group_processes_mode = self.settings.get("group_processes_mode", False)
         
+        # Check if we need to switch between ListStore and TreeStore
+        needs_tree_store = group_processes_mode and not isinstance(self.ports_list_store, Gtk.TreeStore)
+        needs_list_store = not group_processes_mode and isinstance(self.ports_list_store, Gtk.TreeStore)
+        
+        if needs_tree_store:
+            # Switch from ListStore to TreeStore
+            self.ports_list_store = Gtk.TreeStore(str, int, str, str, int, str, int, str, str, str, str, str)
+            self.ports_tree_view.set_model(self.ports_list_store)
+            self.ports_tree_view.set_show_expanders(True)
+            self.ports_tree_view.set_level_indentation(20)
+        elif needs_list_store:
+            # Switch from TreeStore to ListStore
+            self.ports_list_store = Gtk.ListStore(str, int, str, str, int, str, int, str, str, str, str, str)
+            self.ports_tree_view.set_model(self.ports_list_store)
+            self.ports_tree_view.set_show_expanders(False)
+            self.ports_tree_view.set_level_indentation(0)
+        
         # Update ports list store
         self.ports_list_store.clear()
         
-        if group_processes_mode:
-            # Group ports by PID
+        if group_processes_mode and isinstance(self.ports_list_store, Gtk.TreeStore):
+            # Group ports by PID with TreeStore (expandable rows)
             grouped_by_pid = {}
             for port in ports:
                 pid = port.get('pid') or 0
@@ -239,11 +260,11 @@ class PortsTabMixin:
                 grouped_by_pid[pid]['total_bytes_sent_rate'] += port.get('bytes_sent_rate', 0.0)
                 grouped_by_pid[pid]['total_bytes_recv_rate'] += port.get('bytes_recv_rate', 0.0)
             
-            # Add grouped entries to list store
+            # Add grouped entries to tree store (parent rows with child rows)
             for pid, group_data in grouped_by_pid.items():
                 num_ports = len(group_data['ports'])
                 
-                # Get unique protocols and states
+                # Get unique protocols and states for summary
                 protocols = set()
                 states = set()
                 local_addresses = set()
@@ -255,7 +276,7 @@ class PortsTabMixin:
                     local_addresses.add(port.get('local_address', 'N/A'))
                     local_ports.add(str(port.get('local_port', 0)))
                 
-                # Format combined information
+                # Format combined information for parent row
                 protocol_str = ', '.join(sorted(protocols)) if protocols else 'N/A'
                 if len(protocol_str) > 50:
                     protocol_str = f"{len(protocols)} protocols"
@@ -289,9 +310,9 @@ class PortsTabMixin:
                 
                 # Show connection count in remote address column
                 remote_addr_str = f"{num_ports} connection{'s' if num_ports > 1 else ''}"
-                remote_port_str = '-'
                 
-                self.ports_list_store.append([
+                # Create parent row
+                parent_iter = self.ports_list_store.append(None, [
                     group_data['name'],
                     pid,
                     protocol_str,
@@ -305,6 +326,39 @@ class PortsTabMixin:
                     bytes_sent_rate_str,
                     bytes_recv_rate_str
                 ])
+                
+                # Add child rows for each port
+                for port in group_data['ports']:
+                    # Format remote address/port
+                    remote_addr = port.get('remote_address') or '-'
+                    remote_port = port.get('remote_port')
+                    
+                    # Format traffic statistics for individual port
+                    bytes_sent = port.get('bytes_sent', 0)
+                    bytes_recv = port.get('bytes_recv', 0)
+                    bytes_sent_rate = port.get('bytes_sent_rate', 0.0)
+                    bytes_recv_rate = port.get('bytes_recv_rate', 0.0)
+                    
+                    port_bytes_sent_str = self.format_bytes(bytes_sent) if bytes_sent > 0 else '-'
+                    port_bytes_recv_str = self.format_bytes(bytes_recv) if bytes_recv > 0 else '-'
+                    port_bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
+                    port_bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
+                    
+                    # Add child row
+                    self.ports_list_store.append(parent_iter, [
+                        port.get('name') or 'N/A',
+                        pid,  # Same PID as parent
+                        port.get('protocol', 'N/A'),
+                        port.get('local_address', 'N/A'),
+                        port.get('local_port', 0),
+                        remote_addr,
+                        remote_port if remote_port is not None else 0,
+                        port.get('state', 'N/A'),
+                        port_bytes_sent_str,
+                        port_bytes_recv_str,
+                        port_bytes_sent_rate_str,
+                        port_bytes_recv_rate_str
+                    ])
         else:
             # Normal mode - show individual ports
             for port in ports:
