@@ -203,8 +203,14 @@ class GPUStats:
     def stop_background_updates(self) -> None:
         """Stop the background update thread."""
         self._stop_event.set()
-        if self._update_thread is not None:
-            self._update_thread.join(timeout=2.0)
+        if self._update_thread is not None and self._update_thread.is_alive():
+            # Wait for thread to finish, with longer timeout for safety
+            self._update_thread.join(timeout=5.0)
+            # If thread is still alive after timeout, it will be a daemon thread
+            # and will be terminated when main thread exits
+            if not self._update_thread.is_alive():
+                self._update_thread = None
+        else:
             self._update_thread = None
     
     def _background_update_loop(self) -> None:
