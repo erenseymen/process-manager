@@ -182,12 +182,6 @@ src/
 
 ### Phase 5 Features (2025-12-13)
 
-#### Desktop Notifications for Alerts
-- Implemented `send_notification()` in `alerts.py` using `Gio.Notification`
-- Fallback to `notify-send` command when Gio.Application not available
-- Cooldown mechanism (60 seconds) to avoid spamming for same alert
-- Cache cleanup for old alert entries (5 minute expiry)
-
 #### Disk I/O Columns in Process List
 - Added Read/s and Write/s columns to process list (columns 7 and 8)
 - Uses existing `IOStats` module to collect per-process I/O data
@@ -211,12 +205,4 @@ src/
 - Added `_attach_sort_functions()` helper method
 - Sort functions now reattached when switching between tree/list view modes
 - Called in `_recreate_tree_view()` and `_recreate_list_view()`
-
-#### Alert Rules Management UI
-- New "Alerts" page in Preferences dialog
-- Enable/disable alerts toggle
-- Enable/disable desktop notifications toggle
-- Add/Edit/Delete alert rules with dialog
-- Rules stored as list of dicts: `{id, type, threshold, enabled}`
-- Live toggle for individual rule enable/disable
 

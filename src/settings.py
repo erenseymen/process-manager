@@ -46,11 +46,6 @@ class Settings:
         # Process history
         "history_enabled": True,  # Enable process history tracking
         "history_max_days": 7,  # Maximum days to keep history
-        # Alerts
-        "alerts_enabled": False,  # Enable process alerts
-        "alert_rules": [],  # List of alert rule dicts
-        "alert_notifications": True,  # Show desktop notifications
-        "alert_sound": False,  # Play sound on alerts
         # Bookmarks
         "bookmarked_pids": [],  # List of bookmarked process PIDs
     }
