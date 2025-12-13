@@ -58,6 +58,10 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         self.selected_pids = {}
         self._updating_selection = False  # Flag to prevent recursive selection updates
         
+        # Ports tab: unique port keys for precise selection tracking
+        # Format: "pid:protocol:local_port"
+        self.selected_port_keys = set()
+        
         # Cache for previous process stats (for change detection)
         # Key: PID, Value: dict with cpu, memory values
         self._prev_process_stats = {}

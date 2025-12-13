@@ -29,7 +29,19 @@ class PortsTabMixin:
     - _handle_selection_changed: method
     - _handle_right_click: method
     - on_tree_view_key_pressed: method
+    
+    This mixin provides:
+    - selected_port_keys: set of unique port identifiers (pid:protocol:local_addr:local_port:remote_addr:remote_port)
     """
+    
+    def _get_port_key(self, pid, protocol, local_addr, local_port, remote_addr, remote_port):
+        """Generate a unique key for a port entry."""
+        return f"{pid}:{protocol}:{local_addr}:{local_port}:{remote_addr}:{remote_port}"
+    
+    def _init_ports_selection(self):
+        """Initialize ports selection tracking. Call this in window __init__."""
+        if not hasattr(self, 'selected_port_keys'):
+            self.selected_port_keys = set()
     
     def create_ports_tab(self):
         """Create the ports tab content."""
@@ -132,8 +144,111 @@ class PortsTabMixin:
         return tree_view
     
     def on_ports_selection_changed(self, selection):
-        """Handle selection changes for ports tab - sync with persistent selected_pids."""
-        self._handle_selection_changed(selection, self.ports_list_store, pid_column=1, user_column=None)
+        """Handle selection changes for ports tab - track unique port entries."""
+        if self._updating_selection:
+            return
+        
+        # Initialize port keys tracking if needed
+        self._init_ports_selection()
+        
+        model, paths = selection.get_selected_rows()
+        
+        # Track currently selected port keys and PIDs
+        current_port_keys = set()
+        visible_selected_pids = set()
+        
+        for path in paths:
+            iter = model.get_iter(path)
+            pid = model.get_value(iter, 1)           # PID column
+            protocol = model.get_value(iter, 2)      # Protocol column
+            local_addr = model.get_value(iter, 3)    # Local Address column
+            local_port = model.get_value(iter, 4)    # Local Port column
+            remote_addr = model.get_value(iter, 5)   # Remote Address column
+            remote_port = model.get_value(iter, 6)   # Remote Port column
+            name = model.get_value(iter, 0)
+            
+            if pid and pid != 0:
+                port_key = self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port)
+                current_port_keys.add(port_key)
+                visible_selected_pids.add(pid)
+                
+                # Store process info for selected PIDs (for selection panel)
+                if pid not in self.selected_pids:
+                    self.selected_pids[pid] = {
+                        'name': name,
+                        'user': '',
+                        'cpu_str': '-',
+                        'mem_str': '-'
+                    }
+        
+        # Get all visible port keys
+        visible_port_keys = set()
+        visible_pids = set()
+        
+        def collect_visible_keys(parent_iter=None):
+            if isinstance(model, Gtk.TreeStore):
+                if parent_iter is None:
+                    iter = model.get_iter_first()
+                else:
+                    iter = model.iter_children(parent_iter)
+                
+                while iter:
+                    pid = model.get_value(iter, 1)
+                    protocol = model.get_value(iter, 2)
+                    local_addr = model.get_value(iter, 3)
+                    local_port = model.get_value(iter, 4)
+                    remote_addr = model.get_value(iter, 5)
+                    remote_port = model.get_value(iter, 6)
+                    if pid and pid != 0:
+                        visible_port_keys.add(self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port))
+                        visible_pids.add(pid)
+                    
+                    if model.iter_has_child(iter):
+                        collect_visible_keys(iter)
+                    
+                    iter = model.iter_next(iter)
+            else:
+                for row in model:
+                    pid = row[1]
+                    protocol = row[2]
+                    local_addr = row[3]
+                    local_port = row[4]
+                    remote_addr = row[5]
+                    remote_port = row[6]
+                    if pid and pid != 0:
+                        visible_port_keys.add(self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port))
+                        visible_pids.add(pid)
+        
+        collect_visible_keys()
+        
+        # Update selected_port_keys: remove deselected visible ports, add newly selected
+        keys_to_remove = []
+        for key in self.selected_port_keys:
+            if key in visible_port_keys and key not in current_port_keys:
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            self.selected_port_keys.discard(key)
+        
+        # Add newly selected port keys
+        self.selected_port_keys.update(current_port_keys)
+        
+        # Update selected_pids: remove PIDs that have no selected ports anymore
+        pids_to_remove = []
+        for pid in self.selected_pids:
+            if pid in visible_pids and pid not in visible_selected_pids:
+                # Check if this PID still has any selected port keys
+                has_selected_ports = any(
+                    key.startswith(f"{pid}:") for key in self.selected_port_keys
+                )
+                if not has_selected_ports:
+                    pids_to_remove.append(pid)
+        
+        for pid in pids_to_remove:
+            del self.selected_pids[pid]
+        
+        # Update the selection panel
+        self.update_selection_panel()
     
     def sort_local_port(self, model, iter1, iter2, user_data):
         """Sort by local port number."""
@@ -236,6 +351,13 @@ class PortsTabMixin:
             
             for pid in pids_to_remove:
                 del self.selected_pids[pid]
+            
+            # Also remove port keys for ended processes
+            self._init_ports_selection()
+            self.selected_port_keys = {
+                key for key in self.selected_port_keys
+                if int(key.split(':')[0]) not in pids_to_remove
+            }
         
         # Update cpu/memory info for selected processes
         for pid in self.selected_pids:
@@ -453,10 +575,17 @@ class PortsTabMixin:
                     bytes_recv_rate_str
                 ])
         
-        # Restore selection by PID from persistent selection
+        # Restore selection by unique port keys from persistent selection
         self._updating_selection = True
         selection = self.ports_tree_view.get_selection()
-        if self.selected_pids:
+        
+        # Initialize port keys tracking if needed
+        self._init_ports_selection()
+        
+        if self.selected_port_keys:
+            # Track which keys we've already selected (to avoid selecting duplicate rows)
+            keys_already_selected = set()
+            
             # For TreeStore, we need to iterate through all rows including children
             if isinstance(self.ports_list_store, Gtk.TreeStore):
                 def select_paths_recursive(parent_iter=None):
@@ -467,9 +596,19 @@ class PortsTabMixin:
                     
                     while iter:
                         current_path = self.ports_list_store.get_path(iter)
-                        pid = self.ports_list_store.get_value(iter, 1)  # PID column
-                        if pid in self.selected_pids and pid != 0:
-                            selection.select_path(current_path)
+                        pid = self.ports_list_store.get_value(iter, 1)           # PID column
+                        protocol = self.ports_list_store.get_value(iter, 2)      # Protocol column
+                        local_addr = self.ports_list_store.get_value(iter, 3)    # Local Address column
+                        local_port = self.ports_list_store.get_value(iter, 4)    # Local Port column
+                        remote_addr = self.ports_list_store.get_value(iter, 5)   # Remote Address column
+                        remote_port = self.ports_list_store.get_value(iter, 6)   # Remote Port column
+                        
+                        if pid and pid != 0:
+                            port_key = self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port)
+                            # Only select if key is in selected_port_keys AND not already selected
+                            if port_key in self.selected_port_keys and port_key not in keys_already_selected:
+                                selection.select_path(current_path)
+                                keys_already_selected.add(port_key)
                         
                         # Recursively check children
                         if self.ports_list_store.iter_has_child(iter):
@@ -479,13 +618,38 @@ class PortsTabMixin:
                 
                 select_paths_recursive()
             else:
-                # For ListStore, select all rows with matching PIDs
+                # For ListStore, select only first matching row for each port key
                 for i, row in enumerate(self.ports_list_store):
-                    pid = row[1]  # PID column is 1
-                    if pid in self.selected_pids and pid != 0:
-                        selection.select_path(Gtk.TreePath.new_from_indices([i]))
+                    pid = row[1]           # PID column
+                    protocol = row[2]      # Protocol column
+                    local_addr = row[3]    # Local Address column
+                    local_port = row[4]    # Local Port column
+                    remote_addr = row[5]   # Remote Address column
+                    remote_port = row[6]   # Remote Port column
+                    if pid and pid != 0:
+                        port_key = self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port)
+                        # Only select if key is in selected_port_keys AND not already selected
+                        if port_key in self.selected_port_keys and port_key not in keys_already_selected:
+                            selection.select_path(Gtk.TreePath.new_from_indices([i]))
+                            keys_already_selected.add(port_key)
         
         self._updating_selection = False
+        
+        # Sync selected_pids with actual ports selection
+        # Get PIDs that are actually selected in the ports tree
+        selection = self.ports_tree_view.get_selection()
+        model, paths = selection.get_selected_rows()
+        actually_selected_pids = set()
+        for path in paths:
+            iter = model.get_iter(path)
+            pid = model.get_value(iter, 1)
+            if pid and pid != 0:
+                actually_selected_pids.add(pid)
+        
+        # Remove PIDs from selected_pids that aren't selected in ports tree
+        pids_to_remove = [pid for pid in self.selected_pids if pid not in actually_selected_pids]
+        for pid in pids_to_remove:
+            del self.selected_pids[pid]
         
         # Update the selection panel
         self.update_selection_panel()
