@@ -31,7 +31,6 @@ process_manager_sources = [
   'port_stats.py',
   'io_stats.py',
   'process_history.py',
-  'alerts.py',
   'settings.py',
   'preferences.py',
 ]
