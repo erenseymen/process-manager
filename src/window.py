@@ -3008,27 +3008,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             show_kernel_threads=show_kernel_threads
         )
         
-        # Filter by search (with regex support)
+        # Filter by search
         if search_text:
-            import re
-            # Try to compile as regex, fall back to simple search if invalid
-            try:
-                regex_pattern = re.compile(search_text, re.IGNORECASE)
-                use_regex = True
-            except re.error:
-                use_regex = False
+            search_lower = search_text.lower()
             
             def matches_search(proc):
                 """Check if process matches search text."""
-                if use_regex:
-                    return (regex_pattern.search(proc['name']) or
-                           regex_pattern.search(str(proc['pid'])) or
-                           regex_pattern.search(proc['user']))
-                else:
-                    search_lower = search_text.lower()
-                    return (search_lower in proc['name'].lower() or
-                           search_lower in str(proc['pid']) or
-                           search_lower in proc['user'].lower())
+                return (search_lower in proc['name'].lower() or
+                       search_lower in str(proc['pid']) or
+                       search_lower in proc['user'].lower())
             
             # When searching, hide already selected items from results
             filtered_processes = [p for p in processes if 

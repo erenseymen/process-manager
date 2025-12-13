@@ -88,7 +88,7 @@ This file contains important context about the codebase for AI assistants.
 - Proper formatting of memory values and CPU percentages in exports
 
 #### Search/Filter
-- Regex support in search entry (automatic detection, falls back to simple search on invalid regex)
+- Simple text search in search entry
 - Search applies to process name, PID, and username
 
 ### Phase 3 Features (2025-01-XX)
