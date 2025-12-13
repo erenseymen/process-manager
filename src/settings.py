@@ -39,6 +39,18 @@ class Settings:
         "auto_refresh": True,  # Auto refresh toggle state
         "tree_view_mode": False,  # Process tree view mode
         "filter_presets": [],  # Saved filter presets
+        # Column visibility and layout
+        "column_visibility": {},  # Dict mapping column name to visible (bool)
+        "column_order": [],  # List of column names in display order
+        "custom_columns": [],  # List of custom column definitions
+        # Process history
+        "history_enabled": True,  # Enable process history tracking
+        "history_max_days": 7,  # Maximum days to keep history
+        # Alerts
+        "alerts_enabled": False,  # Enable process alerts
+        "alert_rules": [],  # List of alert rule dicts
+        "alert_notifications": True,  # Show desktop notifications
+        "alert_sound": False,  # Play sound on alerts
     }
     
     def __init__(self) -> None:

@@ -12,6 +12,10 @@ from .process_manager import ProcessManager
 from .system_stats import SystemStats
 from .gpu_stats import GPUStats
 from .port_stats import PortStats
+from .io_stats import IOStats
+from .process_history import ProcessHistory
+from .io_stats import IOStats
+from .process_history import ProcessHistory
 
 
 class ProcessDetailsDialog(Adw.Window):
@@ -1277,6 +1281,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.system_stats = SystemStats()
         self.gpu_stats = GPUStats()
         self.port_stats = PortStats()
+        self.io_stats = IOStats()
+        
+        # Initialize process history if enabled
+        history_enabled = self.settings.get("history_enabled", True)
+        max_history_days = self.settings.get("history_max_days", 7)
+        if history_enabled:
+            self.process_history = ProcessHistory(max_history_days=max_history_days)
+        else:
+            self.process_history = None
         
         # Current active tab
         self.current_tab = 'processes'  # 'processes', 'gpu', or 'ports'
@@ -3006,6 +3019,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Update high usage panel
         self.update_high_usage_panel(all_processes)
+        
+        # Update process history
+        if self.process_history:
+            self.process_history.update_processes(all_processes)
     
     def refresh_gpu_processes(self):
         """Refresh the GPU process list."""
@@ -3809,6 +3826,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         height = self.get_height()
         self.settings.set("window_width", width)
         self.settings.set("window_height", height)
+        
+        # Save process history
+        if self.process_history:
+            self.process_history.save_history()
         
         return False  # Allow close
     

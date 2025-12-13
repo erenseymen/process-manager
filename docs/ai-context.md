@@ -94,3 +94,39 @@ This file contains important context about the codebase for AI assistants.
 - Search applies to process name, PID, and username
 - Filter presets infrastructure in place (settings key: `filter_presets`)
 
+### Phase 3 Features (2025-01-XX)
+
+#### I/O Statistics Module
+- `IOStats` class in `io_stats.py` collects disk I/O statistics from `/proc/{pid}/io`
+- Tracks read/write bytes, characters, syscalls, and calculates per-second rates
+- Rates calculated using time.time() timestamps and delta between updates
+- Cache-based approach prevents rate spikes from restarted processes
+
+#### Process History/Logging
+- `ProcessHistory` class in `process_history.py` tracks process lifecycle and resource usage
+- Detects process start/stop events by comparing PID sets between refreshes
+- Stores lifetime statistics: first_seen, last_seen, max_cpu, max_memory, total_samples
+- History persisted to JSON file in config directory
+- Configurable retention period (default: 7 days)
+- Export functionality for JSON and CSV formats
+- Integrated into refresh_processes() to update on each cycle
+
+#### Alerts System
+- `ProcessAlerts` class in `alerts.py` monitors processes against configurable rules
+- Alert rules support CPU and memory thresholds
+- Rules stored in settings with enabled/disabled state
+- Infrastructure for desktop notifications (implementation pending)
+- Integrated check in process refresh cycle
+
+#### Custom Columns & Settings
+- Extended `Settings` class with new keys:
+  - `column_visibility`: Dict mapping column names to visible state
+  - `column_order`: List of column names in display order
+  - `custom_columns`: List of custom column definitions
+  - `history_enabled`: Enable/disable process history tracking
+  - `history_max_days`: Maximum days to keep history
+  - `alerts_enabled`: Enable/disable alert monitoring
+  - `alert_rules`: List of alert rule dictionaries
+  - `alert_notifications`: Show desktop notifications
+  - `alert_sound`: Play sound on alerts
+
