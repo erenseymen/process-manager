@@ -1017,9 +1017,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if auto_refresh:
             button.set_icon_name("media-playback-pause-symbolic")
             button.set_tooltip_text("Pause Auto Refresh")
-            # Start the timer if not already running
-            if not self.refresh_timeout_id:
-                self.start_refresh_timer()
+            # Start the timer (will stop existing timer if any)
+            self.start_refresh_timer()
         else:
             button.set_icon_name("media-playback-start-symbolic")
             button.set_tooltip_text("Start Auto Refresh")
@@ -2482,9 +2481,16 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def start_refresh_timer(self):
         """Start the auto-refresh timer."""
-        # Only start if auto refresh is enabled
-        if not self.settings.get("auto_refresh", True):
+        # Stop any existing timer first to avoid duplicates
+        if self.refresh_timeout_id:
+            GLib.source_remove(self.refresh_timeout_id)
+            self.refresh_timeout_id = None
+        
+        # Check button state (source of truth) or settings as fallback
+        auto_refresh = self.auto_refresh_button.get_active() if hasattr(self, 'auto_refresh_button') else self.settings.get("auto_refresh", True)
+        if not auto_refresh:
             return
+        
         interval = self.settings.get("refresh_interval")
         self.refresh_timeout_id = GLib.timeout_add(interval, self.on_refresh_timeout)
     
