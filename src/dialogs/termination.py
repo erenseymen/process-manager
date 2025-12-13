@@ -285,6 +285,8 @@ class TerminationDialog(Adw.Window):
         
         # Show/hide kill all button
         self.kill_all_button.set_visible(any_running)
+        if any_running:
+            self.kill_all_button.grab_focus()
         
         # If all terminated, stop checking
         if all_terminated:
