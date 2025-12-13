@@ -655,153 +655,6 @@ class ExportDialog(Adw.Window):
                 f.write("\t".join(row) + "\n")
 
 
-class AdvancedFilterDialog(Adw.Window):
-    """Dialog for advanced filtering with multiple criteria."""
-    
-    def __init__(self, parent, settings):
-        """
-        Args:
-            parent: Parent window
-            settings: Settings instance
-        """
-        super().__init__(
-            transient_for=parent,
-            modal=True,
-            title="Advanced Filter",
-            default_width=500,
-            default_height=600,
-        )
-        
-        self.parent = parent
-        self.settings = settings
-        self.filter_presets = settings.get("filter_presets", [])
-        
-        self.build_ui()
-    
-    def build_ui(self):
-        """Build the dialog UI."""
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.set_content(main_box)
-        
-        # Header bar
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(True)
-        main_box.append(header)
-        
-        # Scrolled content
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content_box.set_margin_start(24)
-        content_box.set_margin_end(24)
-        content_box.set_margin_top(16)
-        content_box.set_margin_bottom(24)
-        scrolled.set_child(content_box)
-        main_box.append(scrolled)
-        
-        # CPU range
-        cpu_group = Adw.PreferencesGroup()
-        cpu_group.set_title("CPU Usage")
-        content_box.append(cpu_group)
-        
-        self.cpu_min_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=0.1))
-        self.cpu_max_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=100, lower=0, upper=100, step_increment=0.1))
-        self.cpu_min_spin.set_numeric(True)
-        self.cpu_max_spin.set_numeric(True)
-        
-        cpu_row = Adw.ActionRow()
-        cpu_row.set_title("CPU Range (%)")
-        cpu_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        cpu_box.append(self.cpu_min_spin)
-        cpu_box.append(Gtk.Label(label="to"))
-        cpu_box.append(self.cpu_max_spin)
-        cpu_row.add_suffix(cpu_box)
-        cpu_group.add(cpu_row)
-        
-        # Memory range
-        mem_group = Adw.PreferencesGroup()
-        mem_group.set_title("Memory Usage")
-        content_box.append(mem_group)
-        
-        self.mem_min_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=0.1))
-        self.mem_max_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=100, lower=0, upper=100, step_increment=0.1))
-        self.mem_min_spin.set_numeric(True)
-        self.mem_max_spin.set_numeric(True)
-        
-        mem_row = Adw.ActionRow()
-        mem_row.set_title("Memory Range (%)")
-        mem_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        mem_box.append(self.mem_min_spin)
-        mem_box.append(Gtk.Label(label="to"))
-        mem_box.append(self.mem_max_spin)
-        mem_row.add_suffix(mem_box)
-        mem_group.add(mem_row)
-        
-        # User filter
-        user_group = Adw.PreferencesGroup()
-        user_group.set_title("User")
-        content_box.append(user_group)
-        
-        self.user_entry = Gtk.Entry()
-        self.user_entry.set_placeholder_text("Filter by username (regex supported)")
-        
-        user_row = Adw.ActionRow()
-        user_row.set_title("Username")
-        user_row.add_suffix(self.user_entry)
-        user_group.add(user_row)
-        
-        # State filter
-        state_group = Adw.PreferencesGroup()
-        state_group.set_title("Process State")
-        content_box.append(state_group)
-        
-        self.state_combo = Gtk.ComboBoxText()
-        self.state_combo.append("", "Any")
-        self.state_combo.append("R", "Running")
-        self.state_combo.append("S", "Sleeping")
-        self.state_combo.append("D", "Disk Sleep")
-        self.state_combo.append("Z", "Zombie")
-        self.state_combo.append("T", "Stopped")
-        self.state_combo.set_active_id("")
-        
-        state_row = Adw.ActionRow()
-        state_row.set_title("State")
-        state_row.add_suffix(self.state_combo)
-        state_group.add(state_row)
-        
-        # Regex toggle
-        regex_group = Adw.PreferencesGroup()
-        regex_group.set_title("Search Options")
-        content_box.append(regex_group)
-        
-        self.regex_check = Gtk.CheckButton(label="Use Regular Expressions")
-        regex_group.add(self.regex_check)
-        
-        # Buttons
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        button_box.set_halign(Gtk.Align.END)
-        button_box.set_margin_top(12)
-        content_box.append(button_box)
-        
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda b: self.close())
-        button_box.append(cancel_btn)
-        
-        apply_btn = Gtk.Button(label="Apply")
-        apply_btn.add_css_class("suggested-action")
-        apply_btn.connect("clicked", self.on_apply)
-        button_box.append(apply_btn)
-    
-    def on_apply(self, button):
-        """Apply the filter."""
-        # Store filter criteria (simplified - in real implementation, this would be used in refresh_processes)
-        # For now, we'll just close the dialog
-        # In a full implementation, we'd store these in settings and use them in the filter logic
-        self.close()
-
-
 class ShortcutsWindow(Adw.Window):
     """Window for displaying keyboard shortcuts."""
     
@@ -1387,14 +1240,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.search_bar.connect_entry(self.search_entry)
         self.search_bar.set_search_mode(False)  # Hidden by default
         
-        # Advanced filter button
-        self.advanced_filter_button = Gtk.Button()
-        self.advanced_filter_button.set_icon_name("view-filter-symbolic")
-        self.advanced_filter_button.set_tooltip_text("Advanced Filter")
-        self.advanced_filter_button.add_css_class("flat")
-        self.advanced_filter_button.connect("clicked", lambda b: self.on_advanced_filter())
         search_box.append(self.search_bar)
-        search_box.append(self.advanced_filter_button)
         
         main_box.append(search_box)
         
@@ -3650,50 +3496,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if not tree_view:
             return False
         
-        selection = tree_view.get_selection()
-        model = tree_view.get_model()
-        
-        # Vim-like navigation: j/k for down/up
-        if keyval == Gdk.KEY_j and not has_ctrl and not has_alt and not has_shift:
-            # Move down
-            model_iter, _ = selection.get_selected()
-            if model_iter:
-                # Try to get next sibling
-                next_iter = model.iter_next(model_iter)
-                if next_iter:
-                    path = model.get_path(next_iter)
-                    selection.select_path(path)
-                    tree_view.scroll_to_cell(path, None, False, 0, 0)
-                    return True
-            else:
-                # No selection, select first row
-                first_iter = model.get_iter_first()
-                if first_iter:
-                    path = model.get_path(first_iter)
-                    selection.select_path(path)
-                    tree_view.scroll_to_cell(path, None, False, 0, 0)
-                    return True
-            return True  # Handled even if no movement
-        
-        if keyval == Gdk.KEY_k and not has_ctrl and not has_alt and not has_shift:
-            # Move up
-            model_iter, _ = selection.get_selected()
-            if model_iter:
-                # Try to get previous sibling
-                path = model.get_path(model_iter)
-                prev_path = path.copy()
-                if prev_path.prev():
-                    selection.select_path(prev_path)
-                    tree_view.scroll_to_cell(prev_path, None, False, 0, 0)
-                    return True
-            return True  # Handled even if no movement
-        
-        # Handle / key - open search
-        if keyval == Gdk.KEY_slash and not has_ctrl and not has_alt and not has_shift:
-            self.search_bar.set_search_mode(True)
-            self.search_entry.grab_focus()
-            return True  # Event handled
-        
         # Handle Ctrl+TAB for tab switching
         if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
             current_name = self.view_stack.get_visible_child_name()
@@ -4036,48 +3838,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
         
-        tree_view = self.ports_tree_view
-        selection = tree_view.get_selection()
-        model = tree_view.get_model()
-        
-        # Vim-like navigation: j/k for down/up
-        if keyval == Gdk.KEY_j and not has_ctrl and not has_alt and not has_shift:
-            # Move down
-            model_iter, _ = selection.get_selected()
-            if model_iter:
-                next_iter = model.iter_next(model_iter)
-                if next_iter:
-                    path = model.get_path(next_iter)
-                    selection.select_path(path)
-                    tree_view.scroll_to_cell(path, None, False, 0, 0)
-                    return True
-            else:
-                first_iter = model.get_iter_first()
-                if first_iter:
-                    path = model.get_path(first_iter)
-                    selection.select_path(path)
-                    tree_view.scroll_to_cell(path, None, False, 0, 0)
-                    return True
-            return True
-        
-        if keyval == Gdk.KEY_k and not has_ctrl and not has_alt and not has_shift:
-            # Move up
-            model_iter, _ = selection.get_selected()
-            if model_iter:
-                path = model.get_path(model_iter)
-                prev_path = path.copy()
-                if prev_path.prev():
-                    selection.select_path(prev_path)
-                    tree_view.scroll_to_cell(prev_path, None, False, 0, 0)
-                    return True
-            return True
-        
-        # Handle / key - open search
-        if keyval == Gdk.KEY_slash and not has_ctrl and not has_alt and not has_shift:
-            self.search_bar.set_search_mode(True)
-            self.search_entry.grab_focus()
-            return True
-        
         # Handle Ctrl+TAB for tab switching
         if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
             current_name = self.view_stack.get_visible_child_name()
@@ -4301,8 +4061,3 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         dialog = ExportDialog(self, self.process_manager, self.tree_view, self.list_store, self.selected_pids)
         dialog.present()
     
-    def on_advanced_filter(self):
-        """Show advanced filter dialog."""
-        dialog = AdvancedFilterDialog(self, self.settings)
-        dialog.present()
-

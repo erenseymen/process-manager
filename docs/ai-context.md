@@ -87,12 +87,9 @@ This file contains important context about the codebase for AI assistants.
 - File chooser dialog with format-specific filters
 - Proper formatting of memory values and CPU percentages in exports
 
-#### Advanced Search/Filter
-- Advanced filter button next to search bar opens `AdvancedFilterDialog`
-- Filter criteria: CPU range (%), Memory range (%), Username (regex), Process State
+#### Search/Filter
 - Regex support in search entry (automatic detection, falls back to simple search on invalid regex)
 - Search applies to process name, PID, and username
-- Filter presets infrastructure in place (settings key: `filter_presets`)
 
 ### Phase 3 Features (2025-01-XX)
 
@@ -140,13 +137,6 @@ This file contains important context about the codebase for AI assistants.
 - Displays columns: Sent, Received, Sent/s, Recv/s
 - Traffic data cached to prevent rate spikes from restarted processes
 - Columns are sortable and right-aligned for numeric values
-
-#### Keyboard Navigation (Vim-like)
-- `j` key: Move down in process/ports list
-- `k` key: Move up in process/ports list
-- `/` key: Open search bar (alternative to Ctrl+F)
-- Works in all tabs (Processes, GPU, Ports)
-- Integrated into existing keyboard shortcut system
 
 #### Process Bookmarks
 - Right-click context menu option to bookmark/unbookmark processes

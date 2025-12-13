@@ -12,7 +12,6 @@ A modern, GTK4-based system process manager for Linux.
 - **Open Ports**: View all open network ports and connections with process information
 - **Network Traffic**: Monitor bytes sent/received per connection with real-time rates
 - **Process Bookmarks**: Bookmark frequently monitored processes for quick access
-- **Vim-like Navigation**: Use j/k keys for navigation, / for search
 - **Process Comparison**: Compare selected processes with visual memory and CPU bars
 - **System Stats**: Real-time memory, swap, disk, and GPU usage display with visual indicators
 - **Process Control**: End processes with optional confirmation
@@ -177,9 +176,6 @@ Settings are stored in `~/.config/process-manager/settings.json` and include:
 | `Ctrl+Q` | Quit application |
 | `Ctrl+,` | Open preferences |
 | `Ctrl+F` | Toggle filter/search bar |
-| `j` | Move down in process list (vim-like) |
-| `k` | Move up in process list (vim-like) |
-| `/` | Open search bar (vim-like) |
 
 ## Publishing to Flathub
 
