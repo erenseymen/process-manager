@@ -14,8 +14,6 @@ from .gpu_stats import GPUStats
 from .port_stats import PortStats
 from .io_stats import IOStats
 from .process_history import ProcessHistory
-from .io_stats import IOStats
-from .process_history import ProcessHistory
 
 
 class ProcessDetailsDialog(Adw.Window):
@@ -1638,6 +1636,15 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if auto_refresh:
             button.set_icon_name("media-playback-pause-symbolic")
             button.set_tooltip_text("Pause Auto Refresh")
+            # Start the timer (will stop existing timer if any)
+            self.start_refresh_timer()
+        else:
+            button.set_icon_name("media-playback-start-symbolic")
+            button.set_tooltip_text("Start Auto Refresh")
+            # Stop the timer
+            if self.refresh_timeout_id:
+                GLib.source_remove(self.refresh_timeout_id)
+                self.refresh_timeout_id = None
     
     def on_tree_view_toggled(self, button):
         """Handle tree view toggle button."""
@@ -1653,15 +1660,6 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Refresh to rebuild view
         self.refresh_processes()
-            # Start the timer (will stop existing timer if any)
-            self.start_refresh_timer()
-        else:
-            button.set_icon_name("media-playback-start-symbolic")
-            button.set_tooltip_text("Start Auto Refresh")
-            # Stop the timer
-            if self.refresh_timeout_id:
-                GLib.source_remove(self.refresh_timeout_id)
-                self.refresh_timeout_id = None
     
     # Map column names to column IDs for sort persistence
     COLUMN_NAME_TO_ID = {
