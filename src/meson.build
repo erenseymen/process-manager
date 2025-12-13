@@ -53,7 +53,26 @@ tabs_sources = [
   'tabs/ports_tab.py',
 ]
 
+# UI panel mixin classes
+ui_sources = [
+  'ui/__init__.py',
+  'ui/stats_bar.py',
+  'ui/selection_panel.py',
+  'ui/bookmarks_panel.py',
+  'ui/high_usage_panel.py',
+]
+
+# Handler mixin classes
+handlers_sources = [
+  'handlers/__init__.py',
+  'handlers/keyboard.py',
+  'handlers/context_menu.py',
+  'handlers/process_actions.py',
+]
+
 install_data(process_manager_sources, install_dir: moduledir)
 install_data(dialogs_sources, install_dir: moduledir / 'dialogs')
 install_data(tabs_sources, install_dir: moduledir / 'tabs')
+install_data(ui_sources, install_dir: moduledir / 'ui')
+install_data(handlers_sources, install_dir: moduledir / 'handlers')
 
