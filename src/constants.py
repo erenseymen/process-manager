@@ -68,5 +68,14 @@ APP_CSS = """
     min-height: 20px;
     padding: 0;
 }
+
+.keycap {
+    padding: 4px 8px;
+    border-radius: 4px;
+    background-color: alpha(@window_bg_color, 0.5);
+    border: 1px solid alpha(@borders, 0.5);
+    font-size: 0.9em;
+    font-weight: 500;
+}
 """
 

@@ -66,6 +66,12 @@ class ProcessManagerApplication(Adw.Application):
         refresh_action.connect("activate", self._on_refresh)
         self.add_action(refresh_action)
         self.set_accels_for_action("app.refresh", ["F5"])
+        
+        # Keyboard shortcuts action
+        shortcuts_action = Gio.SimpleAction.new("shortcuts", None)
+        shortcuts_action.connect("activate", self._on_shortcuts)
+        self.add_action(shortcuts_action)
+        self.set_accels_for_action("app.shortcuts", ["<Control>question"])
     
     def _load_css(self) -> None:
         """Load application CSS styles."""
@@ -114,6 +120,11 @@ class ProcessManagerApplication(Adw.Application):
         """Refresh process list."""
         if self.window:
             self.window.refresh_processes()
+    
+    def _on_shortcuts(self, action: Gio.SimpleAction, param: None) -> None:
+        """Show keyboard shortcuts window."""
+        if self.window:
+            self.window.show_shortcuts()
 
 
 def main(version: Optional[str] = None) -> int:
