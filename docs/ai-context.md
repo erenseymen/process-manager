@@ -12,6 +12,7 @@ This file contains important context about the codebase for AI assistants.
 - **Selection Panel** (`ProcessManagerWindow.create_selection_panel()`): Processes grouped by name in ListBox with relative usage bars (color-coded thresholds: low=green/blue, medium=orange/yellow, high=red), sorted by memory descending
 - **System Stats Bar** (`ProcessManagerWindow.create_stats_bar()`): Bottom bar with Memory/Swap/Disk sections using circular progress indicators, updated via `update_system_stats()` periodic timer
 - **Tab System**: Uses `Adw.ViewStack` with `SLIDE` transition; tab changes trigger `on_tab_changed()` callback; `ViewSwitcher` in header for visual navigation
+- **Tabs**: Processes, GPU, and Ports tabs; each tab has its own view and refresh logic
 
 ### GPU Monitoring Implementation (2025-12-12, performance update)
 - Detection in `GPUStats._detect_gpus()` runs at initialization (checks for nvidia-smi, intel_gpu_top, radeontop)
@@ -45,6 +46,15 @@ This file contains important context about the codebase for AI assistants.
 - All fields are copyable: single-line fields have copy button, multi-line fields use selectable text views
 - Uses `Adw.PreferencesGroup` for organized layout with sections
 - Escape key closes the dialog
+
+### Ports Tab Implementation (2025-12-12)
+- `PortStats` class in `port_stats.py` collects open ports using `ss -tunap` command
+- Parses ss output to extract: PID, process name, protocol (tcp/udp/tcp6/udp6), local/remote addresses and ports, connection state
+- Ports view displays: Process Name, PID, Protocol, Local Address, Local Port, Remote Address, Remote Port, State
+- Right-click context menu: Show Process Details, End Process
+- Enter key on selected port shows process details dialog
+- Search/filter works on process name, PID, port number, protocol, and address
+- Refresh happens on tab switch and via auto-refresh timer
 
 ### Design Patterns
 - Type hints used throughout for improved IDE support

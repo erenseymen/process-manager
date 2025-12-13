@@ -11,6 +11,7 @@ from gi.repository import Gtk, Adw, GLib, Gio, Pango, Gdk
 from .process_manager import ProcessManager
 from .system_stats import SystemStats
 from .gpu_stats import GPUStats
+from .port_stats import PortStats
 
 
 class ProcessDetailsDialog(Adw.Window):
@@ -600,9 +601,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.process_manager = ProcessManager()
         self.system_stats = SystemStats()
         self.gpu_stats = GPUStats()
+        self.port_stats = PortStats()
         
         # Current active tab
-        self.current_tab = 'processes'  # 'processes' or 'gpu'
+        self.current_tab = 'processes'  # 'processes', 'gpu', or 'ports'
         
         # Persistent selection tracking
         # Key: PID, Value: dict with process info (name, user, etc.)
@@ -701,6 +703,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         gpu_page = self.create_gpu_tab()
         self.view_stack.add_titled(gpu_page, "gpu", "GPU")
         
+        # Ports tab
+        ports_page = self.create_ports_tab()
+        self.view_stack.add_titled(ports_page, "ports", "Ports")
+        
         # Set initial visible tab
         self.view_stack.set_visible_child_name("processes")
         
@@ -769,6 +775,22 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         self.gpu_process_view = self.create_gpu_process_view()
         scrolled.set_child(self.gpu_process_view)
+        tab_box.append(scrolled)
+        
+        return tab_box
+    
+    def create_ports_tab(self):
+        """Create the ports tab content."""
+        tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        
+        # Ports list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        
+        self.ports_view = self.create_ports_view()
+        scrolled.set_child(self.ports_view)
         tab_box.append(scrolled)
         
         return tab_box
@@ -850,6 +872,13 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             self.gpu_stats.start_background_updates(self._on_gpu_data_updated)
             self.refresh_gpu_processes()
             self.update_system_stats()  # Update stats to show GPU section
+        elif visible_child == "ports":
+            self.current_tab = 'ports'
+            # Stop GPU background monitoring when not on GPU tab
+            self.gpu_stats.stop_background_updates()
+            # Refresh ports
+            self.refresh_ports()
+            self.update_system_stats()  # Update stats to hide GPU section
         else:
             self.current_tab = 'processes'
             # Stop GPU background monitoring when not on GPU tab
@@ -1088,6 +1117,85 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         self.gpu_tree_view = tree_view
         return tree_view
+    
+    def create_ports_view(self):
+        """Create the ports list view."""
+        # Create list store: name, pid, protocol, local_address, local_port, remote_address, remote_port, state
+        self.ports_list_store = Gtk.ListStore(str, int, str, str, int, str, int, str)
+        
+        # Create tree view
+        tree_view = Gtk.TreeView(model=self.ports_list_store)
+        tree_view.set_headers_clickable(True)
+        tree_view.set_enable_search(False)
+        tree_view.set_search_column(-1)  # Disable search completely
+        
+        # Selection
+        selection = tree_view.get_selection()
+        selection.set_mode(Gtk.SelectionMode.SINGLE)
+        
+        # Right-click context menu
+        gesture = Gtk.GestureClick(button=3)
+        gesture.connect("pressed", self.on_ports_right_click)
+        tree_view.add_controller(gesture)
+        
+        # Key controller for tree view
+        tree_key_controller = Gtk.EventControllerKey()
+        tree_key_controller.connect("key-pressed", self.on_ports_tree_view_key_pressed)
+        tree_view.add_controller(tree_key_controller)
+        
+        # Columns
+        columns = [
+            ("Process Name", 0, 200),
+            ("PID", 1, 80),
+            ("Protocol", 2, 80),
+            ("Local Address", 3, 150),
+            ("Local Port", 4, 100),
+            ("Remote Address", 5, 150),
+            ("Remote Port", 6, 100),
+            ("State", 7, 100),
+        ]
+        
+        for i, (title, col_id, width) in enumerate(columns):
+            renderer = Gtk.CellRendererText()
+            if col_id == 0:  # Process name - ellipsize
+                renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            
+            column = Gtk.TreeViewColumn(title, renderer, text=col_id)
+            column.set_resizable(True)
+            column.set_min_width(60)
+            column.set_fixed_width(width)
+            column.set_sort_column_id(col_id)
+            column.set_clickable(True)
+            
+            tree_view.append_column(column)
+        
+        # Custom sorting for numeric columns
+        self.ports_list_store.set_sort_func(1, self.sort_pid, None)  # PID
+        self.ports_list_store.set_sort_func(4, self.sort_local_port, None)  # Local Port
+        self.ports_list_store.set_sort_func(6, self.sort_remote_port, None)  # Remote Port
+        
+        # Default sort by local port
+        self.ports_list_store.set_sort_column_id(4, Gtk.SortType.ASCENDING)
+        
+        self.ports_tree_view = tree_view
+        return tree_view
+    
+    def sort_local_port(self, model, iter1, iter2, user_data):
+        """Sort by local port number."""
+        val1 = model.get_value(iter1, 4)  # Local port column
+        val2 = model.get_value(iter2, 4)
+        return (val1 > val2) - (val1 < val2)
+    
+    def sort_remote_port(self, model, iter1, iter2, user_data):
+        """Sort by remote port number."""
+        val1 = model.get_value(iter1, 6)  # Remote port column
+        val2 = model.get_value(iter2, 6)
+        # Handle 0 values (for ports without remote connection)
+        if val1 == 0:
+            val1 = -1  # Put unconnected ports at the end
+        if val2 == 0:
+            val2 = -1
+        return (val1 > val2) - (val1 < val2)
     
     def on_sort_column_changed(self, model):
         """Handle sort column change - save to settings."""
@@ -1455,6 +1563,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Get current tab's tree view, list store, and PID column index."""
         if self.current_tab == 'gpu':
             return self.gpu_tree_view, self.gpu_list_store, 3
+        elif self.current_tab == 'ports':
+            return self.ports_tree_view, self.ports_list_store, 1
         else:
             return self.tree_view, self.list_store, 6
     
@@ -1462,6 +1572,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Refresh the current tab's process list."""
         if self.current_tab == 'gpu':
             self.refresh_gpu_processes()
+        elif self.current_tab == 'ports':
+            self.refresh_ports()
         else:
             self.refresh_processes()
     
@@ -2154,6 +2266,49 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Update the selection panel
         self.update_selection_panel()
     
+    def refresh_ports(self):
+        """Refresh the ports list."""
+        # Only refresh if we're on the ports tab
+        if self.current_tab != 'ports':
+            return
+        
+        # Get search text
+        search_text = self.search_entry.get_text().lower()
+        
+        # Get all open ports
+        ports = self.port_stats.get_open_ports()
+        
+        # Filter by search text if provided
+        if search_text:
+            filtered_ports = []
+            for port in ports:
+                if (search_text in (port.get('name') or '').lower() or
+                    search_text in str(port.get('pid', '')) or
+                    search_text in str(port.get('local_port', '')) or
+                    search_text in (port.get('protocol', '')).lower() or
+                    search_text in (port.get('local_address', '')).lower()):
+                    filtered_ports.append(port)
+            ports = filtered_ports
+        
+        # Update ports list store
+        self.ports_list_store.clear()
+        for port in ports:
+            # Format remote address/port
+            remote_addr = port.get('remote_address') or '-'
+            remote_port = port.get('remote_port')
+            remote_port_str = str(remote_port) if remote_port is not None else '-'
+            
+            self.ports_list_store.append([
+                port.get('name') or 'N/A',
+                port.get('pid') or 0,
+                port.get('protocol', 'N/A'),
+                port.get('local_address', 'N/A'),
+                port.get('local_port', 0),
+                remote_addr,
+                remote_port if remote_port is not None else 0,
+                port.get('state', 'N/A')
+            ])
+    
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""
         if bytes_val >= 1024 ** 3:
@@ -2235,6 +2390,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if self.current_tab == 'gpu':
             self.refresh_gpu_processes()
             self.update_system_stats()  # Also updates GPU stats
+        elif self.current_tab == 'ports':
+            self.refresh_ports()
+            self.update_system_stats()
         else:
             self.refresh_processes()
             self.update_system_stats()
@@ -2244,6 +2402,8 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Handle search text change."""
         if self.current_tab == 'gpu':
             self.refresh_gpu_processes()
+        elif self.current_tab == 'ports':
+            self.refresh_ports()
         else:
             self.refresh_processes()
     
@@ -2481,6 +2641,129 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def on_gpu_right_click(self, gesture, n_press, x, y):
         """Handle right-click context menu for GPU tab."""
         self._handle_right_click(self.gpu_tree_view, x, y)
+    
+    def on_ports_right_click(self, gesture, n_press, x, y):
+        """Handle right-click context menu for ports tab."""
+        # Get clicked row
+        path_info = self.ports_tree_view.get_path_at_pos(int(x), int(y))
+        if path_info:
+            path, column, cell_x, cell_y = path_info
+            selection = self.ports_tree_view.get_selection()
+            selection.unselect_all()
+            selection.select_path(path)
+            
+            # Show context menu
+            self._show_ports_context_menu(x, y)
+    
+    def _show_ports_context_menu(self, x, y):
+        """Show the ports context menu."""
+        # Get selected PID
+        selection = self.ports_tree_view.get_selection()
+        model, paths = selection.get_selected_rows()
+        if not paths:
+            return
+        
+        path = paths[0]
+        iter = model.get_iter(path)
+        pid = model.get_value(iter, 1)  # PID column
+        
+        if pid == 0:
+            return  # No process associated
+        
+        # Create a simple popover menu
+        popover = Gtk.PopoverMenu()
+        popover.set_parent(self.ports_tree_view)
+        
+        # Create menu model
+        menu = Gio.Menu()
+        
+        # Show Process Details action
+        details_action = Gio.SimpleAction.new("ports-context-details", None)
+        details_action.connect("activate", lambda a, p: self._show_port_process_details(pid))
+        self.add_action(details_action)
+        menu.append("Show Process Details", "win.ports-context-details")
+        
+        # End Process action
+        end_action = Gio.SimpleAction.new("ports-context-kill", None)
+        end_action.connect("activate", lambda a, p: self._kill_port_process(pid))
+        self.add_action(end_action)
+        menu.append("End Process", "win.ports-context-kill")
+        
+        popover.set_menu_model(menu)
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        popover.set_pointing_to(rect)
+        popover.popup()
+    
+    def _show_port_process_details(self, pid):
+        """Show process details for a port's process."""
+        try:
+            # Get process info
+            all_processes = self.process_manager.get_processes(
+                show_all=True,
+                my_processes=False,
+                active_only=False,
+                show_kernel_threads=True
+            )
+            process_map = {p['pid']: p for p in all_processes}
+            
+            if pid not in process_map:
+                return
+            
+            proc = process_map[pid]
+            process_info = {
+                'name': proc['name'],
+                'cpu_str': f"{proc['cpu']:.1f}%",
+                'mem_str': self.format_memory(proc['memory']),
+                'user': proc['user'],
+                'state': proc['state'],
+                'nice': proc['nice'],
+                'started': proc['started']
+            }
+            
+            dialog = ProcessDetailsDialog(self, self.process_manager, pid, process_info)
+            dialog.present()
+        except Exception:
+            pass
+    
+    def _kill_port_process(self, pid):
+        """Kill a process from the ports tab."""
+        try:
+            all_processes = self.process_manager.get_processes(
+                show_all=True,
+                my_processes=False,
+                active_only=False,
+                show_kernel_threads=True
+            )
+            process_map = {p['pid']: p for p in all_processes}
+            
+            if pid not in process_map:
+                return
+            
+            proc = process_map[pid]
+            processes = [{'pid': pid, 'name': proc['name']}]
+            dialog = TerminationDialog(self, self.process_manager, processes)
+            dialog.present()
+        except Exception:
+            pass
+    
+    def on_ports_tree_view_key_pressed(self, controller, keyval, keycode, state):
+        """Handle key press events in ports tree view."""
+        # Enter key - show process details
+        if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
+            selection = self.ports_tree_view.get_selection()
+            model, paths = selection.get_selected_rows()
+            if paths:
+                path = paths[0]
+                iter = model.get_iter(path)
+                pid = model.get_value(iter, 1)  # PID column
+                if pid != 0:
+                    self._show_port_process_details(pid)
+            return True
+        return False
     
     def _handle_right_click(self, tree_view, x, y):
         """Common handler for right-click context menu."""

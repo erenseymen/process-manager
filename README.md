@@ -9,6 +9,7 @@ A modern, GTK4-based system process manager for Linux.
 - **Process Monitoring**: View all running processes with detailed information
 - **Resource Usage**: Monitor CPU and memory usage per process
 - **GPU Monitoring**: Track GPU usage for Intel, NVIDIA, and AMD GPUs with per-process stats
+- **Open Ports**: View all open network ports and connections with process information
 - **Process Comparison**: Compare selected processes with visual memory and CPU bars
 - **System Stats**: Real-time memory, swap, disk, and GPU usage display with visual indicators
 - **Process Control**: End processes with optional confirmation
@@ -118,6 +119,7 @@ process-manager/
 │   ├── ps_commands.py       # PS command utilities for process info
 │   ├── system_stats.py      # Memory/CPU/Disk stats
 │   ├── gpu_stats.py         # GPU monitoring (Intel, NVIDIA, AMD)
+│   ├── port_stats.py        # Open ports and network connections
 │   ├── settings.py          # Settings management
 │   └── preferences.py       # Preferences dialog
 ├── data/
@@ -142,6 +144,7 @@ The application follows a modular architecture:
 - **ps_commands.py**: Low-level system commands for process information retrieval
 - **system_stats.py**: System memory, disk, and load average statistics
 - **gpu_stats.py**: GPU detection and monitoring for Intel, NVIDIA, and AMD GPUs
+- **port_stats.py**: Open ports and network connections monitoring using ss command
 - **settings.py**: Persistent settings management with JSON storage
 - **preferences.py**: User preferences dialog with categorized settings
 
@@ -166,7 +169,7 @@ Settings are stored in `~/.config/process-manager/settings.json` and include:
 | `Space` | Toggle auto-refresh (Play/Pause) |
 | `Escape` | Close search |
 | `Enter` | Select all filtered processes (in search mode) |
-| `Ctrl+Tab` | Switch between Processes and GPU tabs |
+| `Ctrl+Tab` | Switch between Processes, GPU, and Ports tabs |
 | `F5` | Refresh process list |
 | `Ctrl+Q` | Quit application |
 | `Ctrl+,` | Open preferences |
