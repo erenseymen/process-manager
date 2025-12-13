@@ -51,6 +51,8 @@ class Settings:
         "alert_rules": [],  # List of alert rule dicts
         "alert_notifications": True,  # Show desktop notifications
         "alert_sound": False,  # Play sound on alerts
+        # Bookmarks
+        "bookmarked_pids": [],  # List of bookmarked process PIDs
     }
     
     def __init__(self) -> None:

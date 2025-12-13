@@ -129,4 +129,31 @@ This file contains important context about the codebase for AI assistants.
   - `alert_rules`: List of alert rule dictionaries
   - `alert_notifications`: Show desktop notifications
   - `alert_sound`: Play sound on alerts
+  - `bookmarked_pids`: List of bookmarked process PIDs
+
+### Phase 4 Features (2025-01-XX)
+
+#### Network Traffic Monitoring
+- Enhanced ports tab with traffic statistics per connection
+- Tracks bytes sent/received using `ss -i` command
+- Calculates per-second rates using cache-based approach (similar to I/O stats)
+- Displays columns: Sent, Received, Sent/s, Recv/s
+- Traffic data cached to prevent rate spikes from restarted processes
+- Columns are sortable and right-aligned for numeric values
+
+#### Keyboard Navigation (Vim-like)
+- `j` key: Move down in process/ports list
+- `k` key: Move up in process/ports list
+- `/` key: Open search bar (alternative to Ctrl+F)
+- Works in all tabs (Processes, GPU, Ports)
+- Integrated into existing keyboard shortcut system
+
+#### Process Bookmarks
+- Right-click context menu option to bookmark/unbookmark processes
+- Bookmarks panel above selection panel showing all bookmarked processes
+- Displays CPU and memory usage for each bookmarked process
+- Click bookmark to select process in main list
+- Unbookmark button in bookmark row
+- Bookmarks persist across sessions via settings
+- Automatically removes bookmarks for processes that no longer exist
 

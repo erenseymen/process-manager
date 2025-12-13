@@ -1461,6 +1461,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Create the processes tab content."""
         tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         
+        # Bookmarks panel (above selection panel)
+        self.bookmarks_panel = self.create_bookmarks_panel()
+        tab_box.append(self.bookmarks_panel)
+        
         # Selection panel (above process list)
         self.selection_panel = self.create_selection_panel()
         tab_box.append(self.selection_panel)
@@ -1867,8 +1871,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def create_ports_view(self):
         """Create the ports list view."""
-        # Create list store: name, pid, protocol, local_address, local_port, remote_address, remote_port, state
-        self.ports_list_store = Gtk.ListStore(str, int, str, str, int, str, int, str)
+        # Create list store: name, pid, protocol, local_address, local_port, remote_address, remote_port, state,
+        # bytes_sent, bytes_recv, bytes_sent_rate, bytes_recv_rate
+        self.ports_list_store = Gtk.ListStore(str, int, str, str, int, str, int, str, str, str, str, str)
         
         # Create tree view
         tree_view = Gtk.TreeView(model=self.ports_list_store)
@@ -1900,6 +1905,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             ("Remote Address", 5, 150),
             ("Remote Port", 6, 100),
             ("State", 7, 100),
+            ("Sent", 8, 100),
+            ("Received", 9, 100),
+            ("Sent/s", 10, 100),
+            ("Recv/s", 11, 100),
         ]
         
         for i, (title, col_id, width) in enumerate(columns):
@@ -1914,12 +1923,20 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             column.set_sort_column_id(col_id)
             column.set_clickable(True)
             
+            # Right-align numeric columns
+            if col_id in [8, 9, 10, 11]:  # Traffic columns
+                renderer.set_property("xalign", 1.0)
+            
             tree_view.append_column(column)
         
         # Custom sorting for numeric columns
         self.ports_list_store.set_sort_func(1, self.sort_pid, None)  # PID
         self.ports_list_store.set_sort_func(4, self.sort_local_port, None)  # Local Port
         self.ports_list_store.set_sort_func(6, self.sort_remote_port, None)  # Remote Port
+        self.ports_list_store.set_sort_func(8, self.sort_bytes, 8)  # Bytes Sent
+        self.ports_list_store.set_sort_func(9, self.sort_bytes, 9)  # Bytes Received
+        self.ports_list_store.set_sort_func(10, self.sort_bytes_rate, 10)  # Sent/s
+        self.ports_list_store.set_sort_func(11, self.sort_bytes_rate, 11)  # Recv/s
         
         # Default sort by local port
         self.ports_list_store.set_sort_column_id(4, Gtk.SortType.ASCENDING)
@@ -1943,6 +1960,60 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if val2 == 0:
             val2 = -1
         return (val1 > val2) - (val1 < val2)
+    
+    def sort_bytes(self, model, iter1, iter2, user_data):
+        """Sort by bytes value (formatted string like '1.2 MiB')."""
+        def parse_bytes(s):
+            """Parse formatted bytes string to numeric value."""
+            if not s or s == '-':
+                return 0
+            s = s.strip()
+            try:
+                if s.endswith('TiB'):
+                    return float(s[:-3]) * 1024 ** 4
+                elif s.endswith('GiB'):
+                    return float(s[:-3]) * 1024 ** 3
+                elif s.endswith('MiB'):
+                    return float(s[:-3]) * 1024 ** 2
+                elif s.endswith('KiB'):
+                    return float(s[:-3]) * 1024
+                elif s.endswith('B'):
+                    return float(s[:-1])
+                else:
+                    return float(s)
+            except ValueError:
+                return 0
+        
+        val1 = parse_bytes(model.get_value(iter1, user_data))
+        val2 = parse_bytes(model.get_value(iter2, user_data))
+        return (val2 > val1) - (val2 < val1)  # Descending by default
+    
+    def sort_bytes_rate(self, model, iter1, iter2, user_data):
+        """Sort by bytes rate (formatted string like '1.2 MiB/s')."""
+        def parse_rate(s):
+            """Parse formatted rate string to numeric value."""
+            if not s or s == '-':
+                return 0
+            s = s.strip().rstrip('/s')
+            try:
+                if s.endswith('TiB'):
+                    return float(s[:-3]) * 1024 ** 4
+                elif s.endswith('GiB'):
+                    return float(s[:-3]) * 1024 ** 3
+                elif s.endswith('MiB'):
+                    return float(s[:-3]) * 1024 ** 2
+                elif s.endswith('KiB'):
+                    return float(s[:-3]) * 1024
+                elif s.endswith('B'):
+                    return float(s[:-1])
+                else:
+                    return float(s)
+            except ValueError:
+                return 0
+        
+        val1 = parse_rate(model.get_value(iter1, user_data))
+        val2 = parse_rate(model.get_value(iter2, user_data))
+        return (val2 > val1) - (val2 < val1)  # Descending by default
     
     def on_sort_column_changed(self, model):
         """Handle sort column change - save to settings."""
@@ -2065,6 +2136,152 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         panel_box.set_visible(False)
         
         return panel_box
+    
+    def create_bookmarks_panel(self):
+        """Create the bookmarks panel showing bookmarked processes."""
+        # Main container
+        panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel_box.add_css_class("bookmarks-panel")
+        
+        # Header row with title
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_margin_start(12)
+        header_box.set_margin_end(8)
+        header_box.set_margin_top(6)
+        header_box.set_margin_bottom(4)
+        
+        # Title label
+        self.bookmarks_title = Gtk.Label(label="Bookmarks:")
+        self.bookmarks_title.add_css_class("heading")
+        self.bookmarks_title.set_halign(Gtk.Align.START)
+        self.bookmarks_title.set_hexpand(True)
+        header_box.append(self.bookmarks_title)
+        
+        panel_box.append(header_box)
+        
+        # Scrolled window for bookmarks list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_max_content_height(150)
+        scrolled.set_propagate_natural_height(True)
+        
+        # ListBox for bookmarks
+        self.bookmarks_list = Gtk.ListBox()
+        self.bookmarks_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.bookmarks_list.add_css_class("bookmarks-list")
+        self.bookmarks_list.set_margin_start(12)
+        self.bookmarks_list.set_margin_end(12)
+        self.bookmarks_list.set_margin_bottom(8)
+        self.bookmarks_list.connect("row-activated", self.on_bookmark_activated)
+        scrolled.set_child(self.bookmarks_list)
+        panel_box.append(scrolled)
+        
+        # Bottom separator
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        panel_box.append(sep)
+        
+        # Initially hidden
+        panel_box.set_visible(False)
+        
+        return panel_box
+    
+    def update_bookmarks_panel(self):
+        """Update the bookmarks panel with current bookmarked processes."""
+        bookmarked_pids = self.settings.get("bookmarked_pids", [])
+        count = len(bookmarked_pids)
+        
+        # Show/hide panel based on bookmarks
+        self.bookmarks_panel.set_visible(count > 0)
+        
+        if count == 0:
+            return
+        
+        # Update title
+        self.bookmarks_title.set_label(f"Bookmarks ({count}):")
+        
+        # Clear existing rows
+        while True:
+            child = self.bookmarks_list.get_row_at_index(0)
+            if child is None:
+                break
+            self.bookmarks_list.remove(child)
+        
+        # Get all processes to find bookmarked ones
+        all_processes = self.process_manager.get_processes(
+            show_all=True,
+            my_processes=False,
+            active_only=False,
+            show_kernel_threads=True
+        )
+        process_map = {p['pid']: p for p in all_processes}
+        
+        # Add bookmarked processes
+        for pid in bookmarked_pids:
+            if pid in process_map:
+                proc = process_map[pid]
+                row = self.create_bookmark_row(proc)
+                self.bookmarks_list.append(row)
+            else:
+                # Process no longer exists, remove from bookmarks
+                bookmarked_pids.remove(pid)
+                self.settings.set("bookmarked_pids", bookmarked_pids)
+    
+    def create_bookmark_row(self, proc):
+        """Create a row for a bookmarked process."""
+        row = Gtk.ListBoxRow()
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        box.set_margin_top(4)
+        box.set_margin_bottom(4)
+        
+        # Process name
+        name_label = Gtk.Label(label=proc.get('name', 'Unknown'))
+        name_label.set_halign(Gtk.Align.START)
+        name_label.set_hexpand(True)
+        name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        box.append(name_label)
+        
+        # CPU and Memory
+        cpu_str = f"{proc.get('cpu', 0):.1f}%"
+        mem_str = self.format_memory(proc.get('memory', 0))
+        info_label = Gtk.Label(label=f"{cpu_str} | {mem_str}")
+        info_label.set_halign(Gtk.Align.END)
+        info_label.add_css_class("dim-label")
+        box.append(info_label)
+        
+        # Unbookmark button
+        unbookmark_btn = Gtk.Button()
+        unbookmark_btn.set_icon_name("bookmark-remove-symbolic")
+        unbookmark_btn.set_tooltip_text("Unbookmark")
+        unbookmark_btn.add_css_class("flat")
+        unbookmark_btn.add_css_class("circular")
+        unbookmark_btn.connect("clicked", lambda b, p=proc['pid']: self.toggle_bookmark(p))
+        box.append(unbookmark_btn)
+        
+        row.set_child(box)
+        return row
+    
+    def on_bookmark_activated(self, list_box, row):
+        """Handle bookmark row activation - select the process in the main list."""
+        box = row.get_child()
+        # Find the name label to get process name
+        for child in box:
+            if isinstance(child, Gtk.Label) and child.get_halign() == Gtk.Align.START:
+                name = child.get_text()
+                # Find and select the process in the main list
+                self._select_process_by_name(name)
+                break
+    
+    def _select_process_by_name(self, name):
+        """Select a process in the main list by name (selects first match)."""
+        for i, row in enumerate(self.list_store):
+            if row[0] == name:  # Process name column
+                path = Gtk.TreePath.new_from_indices([i])
+                selection = self.tree_view.get_selection()
+                selection.select_path(path)
+                self.tree_view.scroll_to_cell(path, None, False, 0, 0)
+                break
     
     def parse_cpu_str(self, cpu_str):
         """Parse CPU string like '5.2%' to float."""
@@ -2337,6 +2554,24 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 selection.unselect_path(Gtk.TreePath.new_from_indices([i]))
                 break
         self._updating_selection = False
+    
+    def toggle_bookmark(self, pid):
+        """Toggle bookmark status for a process."""
+        bookmarked_pids = self.settings.get("bookmarked_pids", [])
+        if pid in bookmarked_pids:
+            bookmarked_pids.remove(pid)
+            toast = Adw.Toast(title="Process unbookmarked", timeout=2)
+        else:
+            bookmarked_pids.append(pid)
+            toast = Adw.Toast(title="Process bookmarked", timeout=2)
+        self.settings.set("bookmarked_pids", bookmarked_pids)
+        self.toast_overlay.add_toast(toast)
+        self.update_bookmarks_panel()
+    
+    def is_bookmarked(self, pid):
+        """Check if a process is bookmarked."""
+        bookmarked_pids = self.settings.get("bookmarked_pids", [])
+        return pid in bookmarked_pids
     
     def create_high_usage_panel(self):
         """Create the high usage processes panel shown above swap/memory stats."""
@@ -3015,6 +3250,9 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Update the selection panel (in case processes were cleaned up)
         self.update_selection_panel()
         
+        # Update bookmarks panel
+        self.update_bookmarks_panel()
+        
         # Update high usage panel
         self.update_high_usage_panel(all_processes)
         
@@ -3230,6 +3468,17 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             remote_port = port.get('remote_port')
             remote_port_str = str(remote_port) if remote_port is not None else '-'
             
+            # Format traffic statistics
+            bytes_sent = port.get('bytes_sent', 0)
+            bytes_recv = port.get('bytes_recv', 0)
+            bytes_sent_rate = port.get('bytes_sent_rate', 0.0)
+            bytes_recv_rate = port.get('bytes_recv_rate', 0.0)
+            
+            bytes_sent_str = self.format_bytes(bytes_sent) if bytes_sent > 0 else '-'
+            bytes_recv_str = self.format_bytes(bytes_recv) if bytes_recv > 0 else '-'
+            bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
+            bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
+            
             self.ports_list_store.append([
                 port.get('name') or 'N/A',
                 port.get('pid') or 0,
@@ -3238,7 +3487,11 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                 port.get('local_port', 0),
                 remote_addr,
                 remote_port if remote_port is not None else 0,
-                port.get('state', 'N/A')
+                port.get('state', 'N/A'),
+                bytes_sent_str,
+                bytes_recv_str,
+                bytes_sent_rate_str,
+                bytes_recv_rate_str
             ])
     
     def format_memory(self, bytes_val):
@@ -3250,6 +3503,18 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         elif bytes_val >= 1024:
             return f"{bytes_val / 1024:.1f} KiB"
         return f"{bytes_val} B"
+    
+    def format_bytes(self, bytes_val):
+        """Format bytes in human-readable format (same as format_memory but can handle float rates)."""
+        if bytes_val >= 1024 ** 3:
+            return f"{bytes_val / (1024 ** 3):.2f} GiB"
+        elif bytes_val >= 1024 ** 2:
+            return f"{bytes_val / (1024 ** 2):.2f} MiB"
+        elif bytes_val >= 1024:
+            return f"{bytes_val / 1024:.2f} KiB"
+        elif bytes_val >= 1:
+            return f"{bytes_val:.0f} B"
+        return f"{bytes_val:.2f} B"
     
     def update_system_stats(self):
         """Update system memory, swap, disk, and GPU stats."""
@@ -3379,6 +3644,55 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         has_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
         has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        
+        # Get current tree view
+        tree_view, _, _ = self._get_current_tree_view_info()
+        if not tree_view:
+            return False
+        
+        selection = tree_view.get_selection()
+        model = tree_view.get_model()
+        
+        # Vim-like navigation: j/k for down/up
+        if keyval == Gdk.KEY_j and not has_ctrl and not has_alt and not has_shift:
+            # Move down
+            model_iter, _ = selection.get_selected()
+            if model_iter:
+                # Try to get next sibling
+                next_iter = model.iter_next(model_iter)
+                if next_iter:
+                    path = model.get_path(next_iter)
+                    selection.select_path(path)
+                    tree_view.scroll_to_cell(path, None, False, 0, 0)
+                    return True
+            else:
+                # No selection, select first row
+                first_iter = model.get_iter_first()
+                if first_iter:
+                    path = model.get_path(first_iter)
+                    selection.select_path(path)
+                    tree_view.scroll_to_cell(path, None, False, 0, 0)
+                    return True
+            return True  # Handled even if no movement
+        
+        if keyval == Gdk.KEY_k and not has_ctrl and not has_alt and not has_shift:
+            # Move up
+            model_iter, _ = selection.get_selected()
+            if model_iter:
+                # Try to get previous sibling
+                path = model.get_path(model_iter)
+                prev_path = path.copy()
+                if prev_path.prev():
+                    selection.select_path(prev_path)
+                    tree_view.scroll_to_cell(prev_path, None, False, 0, 0)
+                    return True
+            return True  # Handled even if no movement
+        
+        # Handle / key - open search
+        if keyval == Gdk.KEY_slash and not has_ctrl and not has_alt and not has_shift:
+            self.search_bar.set_search_mode(True)
+            self.search_entry.grab_focus()
+            return True  # Event handled
         
         # Handle Ctrl+TAB for tab switching
         if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
@@ -3722,6 +4036,48 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
         
+        tree_view = self.ports_tree_view
+        selection = tree_view.get_selection()
+        model = tree_view.get_model()
+        
+        # Vim-like navigation: j/k for down/up
+        if keyval == Gdk.KEY_j and not has_ctrl and not has_alt and not has_shift:
+            # Move down
+            model_iter, _ = selection.get_selected()
+            if model_iter:
+                next_iter = model.iter_next(model_iter)
+                if next_iter:
+                    path = model.get_path(next_iter)
+                    selection.select_path(path)
+                    tree_view.scroll_to_cell(path, None, False, 0, 0)
+                    return True
+            else:
+                first_iter = model.get_iter_first()
+                if first_iter:
+                    path = model.get_path(first_iter)
+                    selection.select_path(path)
+                    tree_view.scroll_to_cell(path, None, False, 0, 0)
+                    return True
+            return True
+        
+        if keyval == Gdk.KEY_k and not has_ctrl and not has_alt and not has_shift:
+            # Move up
+            model_iter, _ = selection.get_selected()
+            if model_iter:
+                path = model.get_path(model_iter)
+                prev_path = path.copy()
+                if prev_path.prev():
+                    selection.select_path(prev_path)
+                    tree_view.scroll_to_cell(prev_path, None, False, 0, 0)
+                    return True
+            return True
+        
+        # Handle / key - open search
+        if keyval == Gdk.KEY_slash and not has_ctrl and not has_alt and not has_shift:
+            self.search_bar.set_search_mode(True)
+            self.search_entry.grab_focus()
+            return True
+        
         # Handle Ctrl+TAB for tab switching
         if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
             current_name = self.view_stack.get_visible_child_name()
@@ -3782,12 +4138,33 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def _show_context_menu(self, tree_view, x, y):
         """Show the process context menu."""
+        # Get selected PID
+        selection = tree_view.get_selection()
+        model, paths = selection.get_selected_rows()
+        if not paths:
+            return
+        
+        path = paths[0]
+        iter = model.get_iter(path)
+        tree_view, _, pid_col = self._get_current_tree_view_info()
+        pid = model.get_value(iter, pid_col)
+        
         # Create a simple popover menu
         popover = Gtk.PopoverMenu()
         popover.set_parent(tree_view)
         
         # Create menu model
         menu = Gio.Menu()
+        
+        # Bookmark/Unbookmark action
+        bookmarked_pids = self.settings.get("bookmarked_pids", [])
+        is_bookmarked = pid in bookmarked_pids
+        bookmark_action = Gio.SimpleAction.new("context-bookmark", None)
+        bookmark_action.connect("activate", lambda a, p: self.toggle_bookmark(pid))
+        self.add_action(bookmark_action)
+        menu.append("Unbookmark Process" if is_bookmarked else "Bookmark Process", "win.context-bookmark")
+        
+        menu.append("_", None)  # Separator
         
         # Change Priority action
         priority_action = Gio.SimpleAction.new("context-priority", None)
