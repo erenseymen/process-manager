@@ -114,9 +114,10 @@ meson compile -C build
 process-manager/
 ├── src/
 │   ├── __init__.py          # Package initialization with exports
-│   ├── constants.py         # Application constants and CSS styles
+│   ├── constants.py         # Application constants
 │   ├── main.py              # Application entry point
 │   ├── window.py            # Main window UI (ProcessManagerWindow)
+│   ├── utils.py             # Utility functions (formatting, parsing)
 │   ├── dialogs/             # Dialog classes
 │   │   ├── __init__.py      # Re-exports all dialogs
 │   │   ├── process_details.py   # Process details dialog
@@ -124,16 +125,31 @@ process-manager/
 │   │   ├── export.py        # Export process list dialog
 │   │   ├── shortcuts.py     # Keyboard shortcuts window
 │   │   └── termination.py   # Process termination dialog
+│   ├── stats/               # Statistics package
+│   │   ├── __init__.py      # Re-exports stats classes
+│   │   ├── system.py        # System memory/cpu stats
+│   │   ├── ports.py         # Port stats
+│   │   ├── io.py            # I/O stats
+│   │   └── gpu/             # GPU stats package
+│   │       ├── __init__.py  # GPUStats facade
+│   │       ├── nvidia.py    # NVIDIA implementation
+│   │       ├── intel.py     # Intel implementation
+│   │       └── amd.py       # AMD implementation
+│   ├── ui/                  # UI components and mixins
+│   │   ├── stats_bar.py     # Stats bar component
+│   │   ├── selection_panel.py # Selection handling UI
+│   │   ├── bookmarks_panel.py # Bookmarks UI
+│   │   └── high_usage_panel.py # High resource usage alerts
+│   ├── handlers/            # logic handlers
+│   │   ├── keyboard.py      # Keyboard shortcuts handler
+│   │   ├── context_menu.py  # Right-click menu handler
+│   │   └── process_actions.py # Process control actions
 │   ├── tabs/                # Tab mixin classes
 │   │   ├── __init__.py      # Re-exports mixins
 │   │   ├── gpu_tab.py       # GPU tab functionality
 │   │   └── ports_tab.py     # Ports tab functionality
 │   ├── process_manager.py   # Process management interface
 │   ├── ps_commands.py       # PS command utilities for process info
-│   ├── system_stats.py      # Memory/CPU/Disk stats
-│   ├── gpu_stats.py         # GPU monitoring (Intel, NVIDIA, AMD)
-│   ├── port_stats.py        # Open ports and network connections
-│   ├── io_stats.py          # Disk I/O statistics
 │   ├── process_history.py   # Process lifecycle tracking
 │   ├── settings.py          # Settings management
 │   └── preferences.py       # Preferences dialog
@@ -142,7 +158,7 @@ process-manager/
 │   ├── *.desktop.in         # Desktop entry
 │   ├── *.metainfo.xml.in    # AppStream metadata
 │   ├── *.gschema.xml        # GSettings schema
-│   └── style.css            # Application styles
+│   └── style.css            # Application styles (externalized)
 ├── po/                      # Translations
 ├── meson.build              # Build configuration
 └── io.github.processmanager.ProcessManager.json  # Flatpak manifest
@@ -150,24 +166,29 @@ process-manager/
 
 ### Code Architecture
 
-The application follows a modular architecture:
+The application follows a modular architecture using the mixin pattern for separation of concerns:
 
 **Core Modules:**
-- **constants.py**: Centralized application constants including APP_ID, version, and CSS styles
-- **main.py**: Application class with GTK/Adwaita integration and action handling
-- **window.py**: Main window with process list, selection panel, and system stats bar
+- **constants.py**: Centralized application constants including APP_ID and version
+- **main.py**: Application class with GTK/Adwaita integration and CSS loading
+- **window.py**: Main window class that inherits functionality from various mixins
 - **process_manager.py**: High-level process operations (list, kill, renice)
-- **ps_commands.py**: Low-level system commands for process information retrieval
+- **utils.py**: Common utility functions for formatting and string parsing
 
-**UI Packages:**
-- **dialogs/**: Standalone dialog classes (ProcessDetailsDialog, ReniceDialog, ExportDialog, ShortcutsWindow, TerminationDialog)
-- **tabs/**: Tab mixin classes (GPUTabMixin, PortsTabMixin) providing tab-specific functionality
+**UI & Event Handling (Mixin Pattern):**
+- **ui/**: Contains UI-specific mixins (`StatsBarMixin`, `SelectionPanelMixin`, `BookmarksPanelMixin`) that build and manage specific parts of the interface.
+- **handlers/**: Contains logic mixins (`KeyboardHandlerMixin`, `ContextMenuMixin`, `ProcessActionsMixin`) that handle user input and actions multiple modular files.
+- **tabs/**: Mixins for specific tabs (`GPUTabMixin`, `PortsTabMixin`).
 
-**Statistics Modules:**
-- **system_stats.py**: System memory, disk, and load average statistics
-- **gpu_stats.py**: GPU detection and monitoring for Intel, NVIDIA, and AMD GPUs
-- **port_stats.py**: Open ports and network connections monitoring using ss command
-- **io_stats.py**: Per-process disk I/O statistics
+**Statistics Package (`src/stats/`):**
+- **system.py**: System memory, disk, and load average statistics
+- **ports.py**: Open ports and network connections monitoring
+- **io.py**: Per-process disk I/O statistics
+- **gpu/**: Modular GPU monitoring subsystem
+    - **base.py**: Abstract base class for GPU providers
+    - **nvidia.py**: `nvidia-smi` based monitoring
+    - **intel.py**: `intel_gpu_top` based monitoring
+    - **amd.py**: `rocm-smi` and `radeontop` support
 
 **Data & Settings:**
 - **process_history.py**: Process lifecycle tracking and resource usage history
