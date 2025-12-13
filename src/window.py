@@ -2138,8 +2138,18 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Clean up ended processes from selection and update info for existing ones
         pids_to_remove = [pid for pid in self.selected_pids if pid not in all_pids]
-        for pid in pids_to_remove:
-            del self.selected_pids[pid]
+        if pids_to_remove:
+            # Show notification for removed processes
+            removed_names = [self.selected_pids[pid].get('name', f'PID {pid}') for pid in pids_to_remove]
+            if len(removed_names) == 1:
+                message = f"Process '{removed_names[0]}' has exited"
+            else:
+                message = f"{len(removed_names)} selected processes have exited"
+            toast = Adw.Toast(title=message, timeout=3)
+            self.toast_overlay.add_toast(toast)
+            
+            for pid in pids_to_remove:
+                del self.selected_pids[pid]
         
         # Update cpu/memory info for selected processes
         for pid in self.selected_pids:
