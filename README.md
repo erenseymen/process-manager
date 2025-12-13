@@ -135,7 +135,6 @@ process-manager/
 │   ├── port_stats.py        # Open ports and network connections
 │   ├── io_stats.py          # Disk I/O statistics
 │   ├── process_history.py   # Process lifecycle tracking
-│   ├── alerts.py            # Process alert rules
 │   ├── settings.py          # Settings management
 │   └── preferences.py       # Preferences dialog
 ├── data/
@@ -172,7 +171,6 @@ The application follows a modular architecture:
 
 **Data & Settings:**
 - **process_history.py**: Process lifecycle tracking and resource usage history
-- **alerts.py**: Process monitoring alert rules
 - **settings.py**: Persistent settings management with JSON storage
 - **preferences.py**: User preferences dialog with categorized settings
 
