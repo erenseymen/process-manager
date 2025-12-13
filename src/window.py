@@ -297,7 +297,7 @@ class ShortcutsWindow(Adw.Window):
         self.add_shortcut_row(app_group, "Refresh Process List", "F5")
         self.add_shortcut_row(app_group, "Toggle Auto-Refresh", "Space")
         self.add_shortcut_row(app_group, "Open Preferences", "Ctrl+,")
-        self.add_shortcut_row(app_group, "Show Keyboard Shortcuts", "Ctrl+?")
+        self.add_shortcut_row(app_group, "Show Keyboard Shortcuts", "? or Ctrl+?")
         self.add_shortcut_row(app_group, "Quit Application", "Ctrl+Q")
         
         # Add key controller for Escape key
@@ -2637,6 +2637,11 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Get the character from keyval
         char = chr(keyval) if 32 <= keyval <= 126 else None
+        
+        # Handle ? key - show keyboard shortcuts (before opening search bar)
+        if char == '?':
+            self.show_shortcuts()
+            return True  # Event handled
         
         # Check if it's a printable character (letter, number, etc.)
         if char and char.isprintable():
