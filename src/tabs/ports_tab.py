@@ -211,39 +211,133 @@ class PortsTabMixin:
                     filtered_ports.append(port)
             ports = filtered_ports
         
+        # Check if grouping is enabled
+        group_processes_mode = self.settings.get("group_processes_mode", False)
+        
         # Update ports list store
         self.ports_list_store.clear()
-        for port in ports:
-            # Format remote address/port
-            remote_addr = port.get('remote_address') or '-'
-            remote_port = port.get('remote_port')
-            remote_port_str = str(remote_port) if remote_port is not None else '-'
+        
+        if group_processes_mode:
+            # Group ports by PID
+            grouped_by_pid = {}
+            for port in ports:
+                pid = port.get('pid') or 0
+                if pid not in grouped_by_pid:
+                    grouped_by_pid[pid] = {
+                        'name': port.get('name') or 'N/A',
+                        'pid': pid,
+                        'ports': [],
+                        'total_bytes_sent': 0,
+                        'total_bytes_recv': 0,
+                        'total_bytes_sent_rate': 0.0,
+                        'total_bytes_recv_rate': 0.0,
+                    }
+                
+                grouped_by_pid[pid]['ports'].append(port)
+                grouped_by_pid[pid]['total_bytes_sent'] += port.get('bytes_sent', 0)
+                grouped_by_pid[pid]['total_bytes_recv'] += port.get('bytes_recv', 0)
+                grouped_by_pid[pid]['total_bytes_sent_rate'] += port.get('bytes_sent_rate', 0.0)
+                grouped_by_pid[pid]['total_bytes_recv_rate'] += port.get('bytes_recv_rate', 0.0)
             
-            # Format traffic statistics
-            bytes_sent = port.get('bytes_sent', 0)
-            bytes_recv = port.get('bytes_recv', 0)
-            bytes_sent_rate = port.get('bytes_sent_rate', 0.0)
-            bytes_recv_rate = port.get('bytes_recv_rate', 0.0)
-            
-            bytes_sent_str = self.format_bytes(bytes_sent) if bytes_sent > 0 else '-'
-            bytes_recv_str = self.format_bytes(bytes_recv) if bytes_recv > 0 else '-'
-            bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
-            bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
-            
-            self.ports_list_store.append([
-                port.get('name') or 'N/A',
-                port.get('pid') or 0,
-                port.get('protocol', 'N/A'),
-                port.get('local_address', 'N/A'),
-                port.get('local_port', 0),
-                remote_addr,
-                remote_port if remote_port is not None else 0,
-                port.get('state', 'N/A'),
-                bytes_sent_str,
-                bytes_recv_str,
-                bytes_sent_rate_str,
-                bytes_recv_rate_str
-            ])
+            # Add grouped entries to list store
+            for pid, group_data in grouped_by_pid.items():
+                num_ports = len(group_data['ports'])
+                
+                # Get unique protocols and states
+                protocols = set()
+                states = set()
+                local_addresses = set()
+                local_ports = set()
+                
+                for port in group_data['ports']:
+                    protocols.add(port.get('protocol', 'N/A'))
+                    states.add(port.get('state', 'N/A'))
+                    local_addresses.add(port.get('local_address', 'N/A'))
+                    local_ports.add(str(port.get('local_port', 0)))
+                
+                # Format combined information
+                protocol_str = ', '.join(sorted(protocols)) if protocols else 'N/A'
+                if len(protocol_str) > 50:
+                    protocol_str = f"{len(protocols)} protocols"
+                
+                state_str = ', '.join(sorted(states)) if states else 'N/A'
+                if len(state_str) > 50:
+                    state_str = f"{len(states)} states"
+                
+                local_addr_str = f"{len(local_addresses)} addresses" if len(local_addresses) > 1 else (list(local_addresses)[0] if local_addresses else 'N/A')
+                
+                # Get local port value (use first port number if multiple, or 0)
+                local_port_value = 0
+                if local_ports:
+                    # Try to get first port number
+                    first_port_str = list(local_ports)[0]
+                    try:
+                        local_port_value = int(first_port_str)
+                    except (ValueError, TypeError):
+                        local_port_value = 0
+                
+                # Format traffic statistics
+                total_bytes_sent = group_data['total_bytes_sent']
+                total_bytes_recv = group_data['total_bytes_recv']
+                total_bytes_sent_rate = group_data['total_bytes_sent_rate']
+                total_bytes_recv_rate = group_data['total_bytes_recv_rate']
+                
+                bytes_sent_str = self.format_bytes(total_bytes_sent) if total_bytes_sent > 0 else '-'
+                bytes_recv_str = self.format_bytes(total_bytes_recv) if total_bytes_recv > 0 else '-'
+                bytes_sent_rate_str = f"{self.format_bytes(total_bytes_sent_rate)}/s" if total_bytes_sent_rate > 0 else '-'
+                bytes_recv_rate_str = f"{self.format_bytes(total_bytes_recv_rate)}/s" if total_bytes_recv_rate > 0 else '-'
+                
+                # Show connection count in remote address column
+                remote_addr_str = f"{num_ports} connection{'s' if num_ports > 1 else ''}"
+                remote_port_str = '-'
+                
+                self.ports_list_store.append([
+                    group_data['name'],
+                    pid,
+                    protocol_str,
+                    local_addr_str,
+                    local_port_value,
+                    remote_addr_str,
+                    0,  # Remote port - not applicable for grouped view
+                    state_str,
+                    bytes_sent_str,
+                    bytes_recv_str,
+                    bytes_sent_rate_str,
+                    bytes_recv_rate_str
+                ])
+        else:
+            # Normal mode - show individual ports
+            for port in ports:
+                # Format remote address/port
+                remote_addr = port.get('remote_address') or '-'
+                remote_port = port.get('remote_port')
+                remote_port_str = str(remote_port) if remote_port is not None else '-'
+                
+                # Format traffic statistics
+                bytes_sent = port.get('bytes_sent', 0)
+                bytes_recv = port.get('bytes_recv', 0)
+                bytes_sent_rate = port.get('bytes_sent_rate', 0.0)
+                bytes_recv_rate = port.get('bytes_recv_rate', 0.0)
+                
+                bytes_sent_str = self.format_bytes(bytes_sent) if bytes_sent > 0 else '-'
+                bytes_recv_str = self.format_bytes(bytes_recv) if bytes_recv > 0 else '-'
+                bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
+                bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
+                
+                self.ports_list_store.append([
+                    port.get('name') or 'N/A',
+                    port.get('pid') or 0,
+                    port.get('protocol', 'N/A'),
+                    port.get('local_address', 'N/A'),
+                    port.get('local_port', 0),
+                    remote_addr,
+                    remote_port if remote_port is not None else 0,
+                    port.get('state', 'N/A'),
+                    bytes_sent_str,
+                    bytes_recv_str,
+                    bytes_sent_rate_str,
+                    bytes_recv_rate_str
+                ])
     
     def on_ports_right_click(self, gesture, n_press, x, y):
         """Handle right-click context menu for ports tab."""

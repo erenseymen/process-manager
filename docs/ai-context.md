@@ -206,3 +206,15 @@ src/
 - Sort functions now reattached when switching between tree/list view modes
 - Called in `_recreate_tree_view()` and `_recreate_list_view()`
 
+### Tab-Specific Button Behavior (2025-12-XX)
+- **Tree View Button**: Visibility and functionality vary by tab
+  - **GPU Tab**: Button is hidden (`set_visible(False)`) - no tree view functionality needed
+  - **Ports Tab**: Button shows "Group Processes" label instead of "Tree View"
+    - When enabled, groups ports by PID and combines traffic statistics
+    - Shows aggregated data: combined bytes sent/received, connection counts
+    - Setting: `group_processes_mode` (boolean) persists user preference
+    - Handler: `on_tree_view_toggled()` detects current tab and delegates accordingly
+  - **Processes Tab**: Button shows normal "Tree View" label (existing functionality)
+- Button state updated in `on_tab_changed()` when switching tabs
+- Ports grouping implemented in `refresh_ports()` method in `PortsTabMixin`
+

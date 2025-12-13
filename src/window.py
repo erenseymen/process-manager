@@ -184,6 +184,14 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         # Connect to view stack changes
         self.view_stack.connect("notify::visible-child", self.on_tab_changed)
         
+        # Set initial button state for default tab (processes)
+        # Button should be visible for processes tab with tree view mode
+        tree_view_mode = self.settings.get("tree_view_mode", False)
+        self.tree_view_button.set_active(tree_view_mode)
+        self.tree_view_button.set_icon_name("view-list-symbolic")
+        self.tree_view_button.set_tooltip_text("Tree View" if not tree_view_mode else "List View")
+        self.tree_view_button.set_visible(True)
+        
         main_box.append(self.view_stack)
         
         # System stats bar (shared between tabs)
@@ -314,12 +322,20 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         visible_child = stack.get_visible_child_name()
         if visible_child == "gpu":
             self.current_tab = 'gpu'
+            # Hide tree view button on GPU tab
+            self.tree_view_button.set_visible(False)
             # Start GPU background monitoring
             self.gpu_stats.start_background_updates(self._on_gpu_data_updated)
             self.refresh_gpu_processes()
             self.update_system_stats()  # Update stats to show GPU section
         elif visible_child == "ports":
             self.current_tab = 'ports'
+            # Show button with "Group Processes" label for Ports tab
+            self.tree_view_button.set_visible(True)
+            group_processes_mode = self.settings.get("group_processes_mode", False)
+            self.tree_view_button.set_active(group_processes_mode)
+            self.tree_view_button.set_icon_name("view-list-symbolic")
+            self.tree_view_button.set_tooltip_text("Group Processes" if not group_processes_mode else "Ungroup Processes")
             # Stop GPU background monitoring when not on GPU tab
             self.gpu_stats.stop_background_updates()
             # Refresh ports
@@ -327,6 +343,12 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             self.update_system_stats()  # Update stats to hide GPU section
         else:
             self.current_tab = 'processes'
+            # Show tree view button with normal label for Processes tab
+            self.tree_view_button.set_visible(True)
+            tree_view_mode = self.settings.get("tree_view_mode", False)
+            self.tree_view_button.set_active(tree_view_mode)
+            self.tree_view_button.set_icon_name("view-list-symbolic")
+            self.tree_view_button.set_tooltip_text("Tree View" if not tree_view_mode else "List View")
             # Stop GPU background monitoring when not on GPU tab
             self.gpu_stats.stop_background_updates()
             # Refresh regular processes
@@ -366,18 +388,33 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
     
     def on_tree_view_toggled(self, button):
         """Handle tree view toggle button."""
-        tree_view_mode = button.get_active()
-        # Save the toggle state
-        self.settings.set("tree_view_mode", tree_view_mode)
-        
-        # Update tooltip
-        if tree_view_mode:
-            button.set_tooltip_text("List View")
+        if self.current_tab == 'ports':
+            # For Ports tab, handle group processes mode
+            group_processes_mode = button.get_active()
+            self.settings.set("group_processes_mode", group_processes_mode)
+            
+            # Update tooltip
+            if group_processes_mode:
+                button.set_tooltip_text("Ungroup Processes")
+            else:
+                button.set_tooltip_text("Group Processes")
+            
+            # Refresh ports to apply grouping
+            self.refresh_ports()
         else:
-            button.set_tooltip_text("Tree View")
-        
-        # Refresh to rebuild view
-        self.refresh_processes()
+            # For Processes tab, handle tree view mode
+            tree_view_mode = button.get_active()
+            # Save the toggle state
+            self.settings.set("tree_view_mode", tree_view_mode)
+            
+            # Update tooltip
+            if tree_view_mode:
+                button.set_tooltip_text("List View")
+            else:
+                button.set_tooltip_text("Tree View")
+            
+            # Refresh to rebuild view
+            self.refresh_processes()
     
     # Map column names to column IDs for sort persistence
     COLUMN_NAME_TO_ID = {

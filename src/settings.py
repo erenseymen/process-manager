@@ -38,6 +38,7 @@ class Settings:
         "show_all_toggle": True,  # All/User toggle state (True = All, False = User)
         "auto_refresh": True,  # Auto refresh toggle state
         "tree_view_mode": False,  # Process tree view mode
+        "group_processes_mode": False,  # Group processes by PID in Ports tab
         "filter_presets": [],  # Saved filter presets
         # Column visibility and layout
         "column_visibility": {},  # Dict mapping column name to visible (bool)
