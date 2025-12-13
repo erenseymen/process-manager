@@ -7,8 +7,6 @@ gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, GLib, Gio, Pango, Gdk
 
-from ..dialogs import ProcessDetailsDialog, TerminationDialog
-
 
 class PortsTabMixin:
     """Mixin class providing Ports tab functionality for ProcessManagerWindow.
@@ -21,13 +19,25 @@ class PortsTabMixin:
     - view_stack: Adw.ViewStack
     - auto_refresh_button: Gtk.ToggleButton
     - selected_pids: dict
+    - _updating_selection: bool flag
+    - toast_overlay: Adw.ToastOverlay
+    - search_entry: Gtk.SearchEntry
     - format_memory: method
     - format_bytes: method
+    - create_selection_panel_for_tab: method
+    - update_selection_panel: method
+    - _handle_selection_changed: method
+    - _handle_right_click: method
+    - on_tree_view_key_pressed: method
     """
     
     def create_ports_tab(self):
         """Create the ports tab content."""
         tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        
+        # Selection panel for ports tab (shared with other tabs)
+        self.ports_selection_panel = self.create_selection_panel_for_tab('ports')
+        tab_box.append(self.ports_selection_panel)
         
         # Ports list
         scrolled = Gtk.ScrolledWindow()
@@ -59,7 +69,8 @@ class PortsTabMixin:
         
         # Selection
         selection = tree_view.get_selection()
-        selection.set_mode(Gtk.SelectionMode.SINGLE)
+        selection.set_mode(Gtk.SelectionMode.MULTIPLE)
+        selection.connect("changed", self.on_ports_selection_changed)
         
         # Right-click context menu
         gesture = Gtk.GestureClick(button=3)
@@ -68,7 +79,7 @@ class PortsTabMixin:
         
         # Key controller for tree view
         tree_key_controller = Gtk.EventControllerKey()
-        tree_key_controller.connect("key-pressed", self.on_ports_tree_view_key_pressed)
+        tree_key_controller.connect("key-pressed", self.on_tree_view_key_pressed)
         tree_view.add_controller(tree_key_controller)
         
         # Columns
@@ -119,6 +130,10 @@ class PortsTabMixin:
         
         self.ports_tree_view = tree_view
         return tree_view
+    
+    def on_ports_selection_changed(self, selection):
+        """Handle selection changes for ports tab - sync with persistent selected_pids."""
+        self._handle_selection_changed(selection, self.ports_list_store, pid_column=1, user_column=None)
     
     def sort_local_port(self, model, iter1, iter2, user_data):
         """Sort by local port number."""
@@ -196,6 +211,38 @@ class PortsTabMixin:
         # Only refresh if we're on the ports tab
         if self.current_tab != 'ports':
             return
+        
+        # Get all processes to check for ended processes
+        all_processes = self.process_manager.get_processes(
+            show_all=True,
+            my_processes=False,
+            active_only=False,
+            show_kernel_threads=True
+        )
+        all_pids = {p['pid'] for p in all_processes}
+        all_process_map = {p['pid']: p for p in all_processes}
+        
+        # Clean up ended processes from selection and update info for existing ones
+        pids_to_remove = [pid for pid in self.selected_pids if pid not in all_pids]
+        if pids_to_remove:
+            # Show notification for removed processes
+            removed_names = [self.selected_pids[pid].get('name', f'PID {pid}') for pid in pids_to_remove]
+            if len(removed_names) == 1:
+                message = f"Process '{removed_names[0]}' has exited"
+            else:
+                message = f"{len(removed_names)} selected processes have exited"
+            toast = Adw.Toast(title=message, timeout=3)
+            self.toast_overlay.add_toast(toast)
+            
+            for pid in pids_to_remove:
+                del self.selected_pids[pid]
+        
+        # Update cpu/memory info for selected processes
+        for pid in self.selected_pids:
+            if pid in all_process_map:
+                proc = all_process_map[pid]
+                self.selected_pids[pid]['cpu_str'] = f"{proc['cpu']:.1f}%"
+                self.selected_pids[pid]['mem_str'] = self.format_memory(proc['memory'])
         
         # Get search text
         search_text = self.search_entry.get_text().lower()
@@ -392,161 +439,45 @@ class PortsTabMixin:
                     bytes_sent_rate_str,
                     bytes_recv_rate_str
                 ])
+        
+        # Restore selection by PID from persistent selection
+        self._updating_selection = True
+        selection = self.ports_tree_view.get_selection()
+        if self.selected_pids:
+            # For TreeStore, we need to iterate through all rows including children
+            if isinstance(self.ports_list_store, Gtk.TreeStore):
+                def select_paths_recursive(parent_iter=None):
+                    if parent_iter is None:
+                        iter = self.ports_list_store.get_iter_first()
+                    else:
+                        iter = self.ports_list_store.iter_children(parent_iter)
+                    
+                    while iter:
+                        current_path = self.ports_list_store.get_path(iter)
+                        pid = self.ports_list_store.get_value(iter, 1)  # PID column
+                        if pid in self.selected_pids and pid != 0:
+                            selection.select_path(current_path)
+                        
+                        # Recursively check children
+                        if self.ports_list_store.iter_has_child(iter):
+                            select_paths_recursive(iter)
+                        
+                        iter = self.ports_list_store.iter_next(iter)
+                
+                select_paths_recursive()
+            else:
+                # For ListStore, select all rows with matching PIDs
+                for i, row in enumerate(self.ports_list_store):
+                    pid = row[1]  # PID column is 1
+                    if pid in self.selected_pids and pid != 0:
+                        selection.select_path(Gtk.TreePath.new_from_indices([i]))
+        
+        self._updating_selection = False
+        
+        # Update the selection panel
+        self.update_selection_panel()
     
     def on_ports_right_click(self, gesture, n_press, x, y):
         """Handle right-click context menu for ports tab."""
-        # Get clicked row
-        path_info = self.ports_tree_view.get_path_at_pos(int(x), int(y))
-        if path_info:
-            path, column, cell_x, cell_y = path_info
-            selection = self.ports_tree_view.get_selection()
-            selection.unselect_all()
-            selection.select_path(path)
-            
-            # Show context menu
-            self._show_ports_context_menu(x, y)
-    
-    def _show_ports_context_menu(self, x, y):
-        """Show the ports context menu."""
-        # Get selected PID
-        selection = self.ports_tree_view.get_selection()
-        model, paths = selection.get_selected_rows()
-        if not paths:
-            return
-        
-        path = paths[0]
-        iter = model.get_iter(path)
-        pid = model.get_value(iter, 1)  # PID column
-        
-        if pid == 0:
-            return  # No process associated
-        
-        # Create a simple popover menu
-        popover = Gtk.PopoverMenu()
-        popover.set_parent(self.ports_tree_view)
-        
-        # Create menu model
-        menu = Gio.Menu()
-        
-        # Show Process Details action
-        details_action = Gio.SimpleAction.new("ports-context-details", None)
-        details_action.connect("activate", lambda a, p: self._show_port_process_details(pid))
-        self.add_action(details_action)
-        menu.append("Show Process Details", "win.ports-context-details")
-        
-        # End Process action
-        end_action = Gio.SimpleAction.new("ports-context-kill", None)
-        end_action.connect("activate", lambda a, p: self._kill_port_process(pid))
-        self.add_action(end_action)
-        menu.append("End Process", "win.ports-context-kill")
-        
-        popover.set_menu_model(menu)
-        rect = Gdk.Rectangle()
-        rect.x = int(x)
-        rect.y = int(y)
-        rect.width = 1
-        rect.height = 1
-        popover.set_pointing_to(rect)
-        popover.popup()
-    
-    def _show_port_process_details(self, pid):
-        """Show process details for a port's process."""
-        try:
-            # Get process info
-            all_processes = self.process_manager.get_processes(
-                show_all=True,
-                my_processes=False,
-                active_only=False,
-                show_kernel_threads=True
-            )
-            process_map = {p['pid']: p for p in all_processes}
-            
-            if pid not in process_map:
-                return
-            
-            proc = process_map[pid]
-            process_info = {
-                'name': proc['name'],
-                'cpu_str': f"{proc['cpu']:.1f}%",
-                'mem_str': self.format_memory(proc['memory']),
-                'user': proc['user'],
-                'state': proc['state'],
-                'nice': proc['nice'],
-                'started': proc['started']
-            }
-            
-            dialog = ProcessDetailsDialog(self, self.process_manager, pid, process_info)
-            dialog.present()
-        except Exception:
-            pass
-    
-    def _kill_port_process(self, pid):
-        """Kill a process from the ports tab."""
-        try:
-            all_processes = self.process_manager.get_processes(
-                show_all=True,
-                my_processes=False,
-                active_only=False,
-                show_kernel_threads=True
-            )
-            process_map = {p['pid']: p for p in all_processes}
-            
-            if pid not in process_map:
-                return
-            
-            proc = process_map[pid]
-            processes = [{'pid': pid, 'name': proc['name']}]
-            dialog = TerminationDialog(self, self.process_manager, processes)
-            dialog.present()
-        except Exception:
-            pass
-    
-    def on_ports_tree_view_key_pressed(self, controller, keyval, keycode, state):
-        """Handle key press events in ports tree view."""
-        has_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
-        has_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
-        has_alt = bool(state & Gdk.ModifierType.ALT_MASK)
-        
-        # Handle Ctrl+TAB for tab switching
-        if keyval == Gdk.KEY_Tab and has_ctrl and not has_alt and not has_shift:
-            current_name = self.view_stack.get_visible_child_name()
-            if current_name == "processes":
-                self.view_stack.set_visible_child_name("gpu")
-            elif current_name == "gpu":
-                self.view_stack.set_visible_child_name("ports")
-            else:
-                self.view_stack.set_visible_child_name("processes")
-            return True  # Event handled
-        
-        # Handle Space - toggle Play/Pause auto refresh
-        if keyval == Gdk.KEY_space and not has_ctrl and not has_alt and not has_shift:
-            self.auto_refresh_button.set_active(not self.auto_refresh_button.get_active())
-            return True  # Event handled
-        
-        # Handle Delete - terminate selected processes (SIGTERM)
-        if keyval == Gdk.KEY_Delete and not has_shift and not has_ctrl and not has_alt:
-            if self.selected_pids:
-                self.terminate_selected_processes()
-                return True  # Event handled
-            return False
-        
-        # Handle Shift+Delete - force kill selected processes (SIGKILL)
-        if keyval == Gdk.KEY_Delete and has_shift and not has_ctrl and not has_alt:
-            if self.selected_pids:
-                self.force_kill_selected_processes()
-                return True  # Event handled
-            return False
-        
-        # Enter key - show process details
-        if (keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter) and not has_ctrl and not has_alt and not has_shift:
-            selection = self.ports_tree_view.get_selection()
-            model, paths = selection.get_selected_rows()
-            if paths:
-                path = paths[0]
-                iter = model.get_iter(path)
-                pid = model.get_value(iter, 1)  # PID column
-                if pid != 0:
-                    self._show_port_process_details(pid)
-            return True
-        return False
+        self._handle_right_click(self.ports_tree_view, x, y)
 
