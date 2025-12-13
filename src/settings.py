@@ -37,6 +37,8 @@ class Settings:
         "window_height": 600,
         "show_all_toggle": True,  # All/User toggle state (True = All, False = User)
         "auto_refresh": True,  # Auto refresh toggle state
+        "tree_view_mode": False,  # Process tree view mode
+        "filter_presets": [],  # Saved filter presets
     }
     
     def __init__(self) -> None:

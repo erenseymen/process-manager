@@ -227,6 +227,579 @@ class ProcessDetailsDialog(Adw.Window):
         return False  # Let other handlers process
 
 
+class ReniceDialog(Adw.Window):
+    """Dialog for changing process priority (renice)."""
+    
+    def __init__(self, parent, process_manager, processes):
+        """
+        Args:
+            parent: Parent window
+            process_manager: ProcessManager instance
+            processes: List of process dicts with 'pid', 'name', 'nice'
+        """
+        super().__init__(
+            transient_for=parent,
+            modal=True,
+            title="Change Process Priority",
+            default_width=400,
+            default_height=300,
+        )
+        
+        self.process_manager = process_manager
+        self.processes = processes
+        self.parent = parent
+        
+        self.build_ui()
+    
+    def build_ui(self):
+        """Build the dialog UI."""
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_content(main_box)
+        
+        # Header bar
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(True)
+        main_box.append(header)
+        
+        # Content
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_start(24)
+        content_box.set_margin_end(24)
+        content_box.set_margin_top(16)
+        content_box.set_margin_bottom(24)
+        main_box.append(content_box)
+        
+        # Process list
+        if len(self.processes) == 1:
+            proc = self.processes[0]
+            label = Gtk.Label(label=f"Process: {proc['name']} (PID: {proc['pid']})")
+        else:
+            label = Gtk.Label(label=f"{len(self.processes)} processes selected")
+        label.set_halign(Gtk.Align.START)
+        content_box.append(label)
+        
+        # Current priority
+        current_nice = self.processes[0]['nice']
+        current_label = Gtk.Label(label=f"Current priority: {current_nice}")
+        current_label.set_halign(Gtk.Align.START)
+        content_box.append(current_label)
+        
+        # Priority adjustment
+        adj_group = Adw.PreferencesGroup()
+        adj_group.set_title("Priority (Nice Value)")
+        content_box.append(adj_group)
+        
+        # Spin button for nice value (-20 to 19)
+        nice_row = Adw.ActionRow()
+        nice_row.set_title("Nice Value")
+        
+        adjustment = Gtk.Adjustment(value=current_nice, lower=-20, upper=19, step_increment=1)
+        self.nice_spin = Gtk.SpinButton(adjustment=adjustment)
+        self.nice_spin.set_numeric(True)
+        nice_row.add_suffix(self.nice_spin)
+        adj_group.add(nice_row)
+        
+        # Info label
+        info_label = Gtk.Label()
+        info_label.set_markup("<small>Range: -20 (highest priority) to 19 (lowest priority)</small>")
+        info_label.set_halign(Gtk.Align.START)
+        info_label.set_margin_start(24)
+        info_label.set_margin_end(24)
+        content_box.append(info_label)
+        
+        # Buttons
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        button_box.set_halign(Gtk.Align.END)
+        button_box.set_margin_top(12)
+        content_box.append(button_box)
+        
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda b: self.close())
+        button_box.append(cancel_btn)
+        
+        apply_btn = Gtk.Button(label="Apply")
+        apply_btn.add_css_class("suggested-action")
+        apply_btn.connect("clicked", self.on_apply)
+        button_box.append(apply_btn)
+    
+    def on_apply(self, button):
+        """Apply the new nice value."""
+        new_nice = int(self.nice_spin.get_value())
+        
+        success_count = 0
+        failed = []
+        
+        for proc in self.processes:
+            try:
+                self.process_manager.renice_process(proc['pid'], new_nice)
+                success_count += 1
+            except Exception as e:
+                failed.append(f"{proc['name']} (PID {proc['pid']}): {e}")
+        
+        if failed:
+            error_msg = f"Failed to change priority for:\n" + "\n".join(failed)
+            self.parent.show_error(error_msg)
+        else:
+            if len(self.processes) == 1:
+                self.parent.show_error(f"Priority changed to {new_nice}")
+            else:
+                self.parent.show_error(f"Priority changed to {new_nice} for {success_count} processes")
+        
+        self.close()
+        # Refresh after a short delay
+        GLib.timeout_add(500, lambda: self.parent.refresh_processes())
+
+
+class ExportDialog(Adw.Window):
+    """Dialog for exporting process list."""
+    
+    def __init__(self, parent, process_manager, tree_view, list_store, selected_pids):
+        """
+        Args:
+            parent: Parent window
+            process_manager: ProcessManager instance
+            tree_view: The process tree view
+            list_store: The list store
+            selected_pids: Dict of selected PIDs
+        """
+        super().__init__(
+            transient_for=parent,
+            modal=True,
+            title="Export Process List",
+            default_width=500,
+            default_height=400,
+        )
+        
+        self.parent = parent
+        self.process_manager = process_manager
+        self.tree_view = tree_view
+        self.list_store = list_store
+        self.selected_pids = selected_pids
+        
+        self.build_ui()
+    
+    def build_ui(self):
+        """Build the dialog UI."""
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_content(main_box)
+        
+        # Header bar
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(True)
+        main_box.append(header)
+        
+        # Content
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_start(24)
+        content_box.set_margin_end(24)
+        content_box.set_margin_top(16)
+        content_box.set_margin_bottom(24)
+        main_box.append(content_box)
+        
+        # Format selection
+        format_group = Adw.PreferencesGroup()
+        format_group.set_title("Export Format")
+        content_box.append(format_group)
+        
+        self.format_combo = Gtk.ComboBoxText()
+        self.format_combo.append("csv", "CSV")
+        self.format_combo.append("json", "JSON")
+        self.format_combo.append("txt", "Plain Text")
+        self.format_combo.set_active_id("csv")
+        
+        format_row = Adw.ActionRow()
+        format_row.set_title("Format")
+        format_row.add_suffix(self.format_combo)
+        format_group.add(format_row)
+        
+        # Scope selection
+        scope_group = Adw.PreferencesGroup()
+        scope_group.set_title("Export Scope")
+        content_box.append(scope_group)
+        
+        self.scope_combo = Gtk.ComboBoxText()
+        self.scope_combo.append("all", "All Visible Processes")
+        self.scope_combo.append("selected", "Selected Processes Only")
+        self.scope_combo.set_active_id("all")
+        
+        scope_row = Adw.ActionRow()
+        scope_row.set_title("Scope")
+        scope_row.add_suffix(self.scope_combo)
+        scope_group.add(scope_row)
+        
+        # Column selection
+        columns_group = Adw.PreferencesGroup()
+        columns_group.set_title("Columns")
+        content_box.append(columns_group)
+        
+        # Get column names
+        self.column_names = ["Process Name", "CPU %", "Memory", "Started", "User", "Nice", "PID"]
+        self.column_checkboxes = {}
+        
+        for col_name in self.column_names:
+            check = Gtk.CheckButton(label=col_name)
+            check.set_active(True)
+            self.column_checkboxes[col_name] = check
+            columns_group.add(check)
+        
+        # Buttons
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        button_box.set_halign(Gtk.Align.END)
+        button_box.set_margin_top(12)
+        content_box.append(button_box)
+        
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda b: self.close())
+        button_box.append(cancel_btn)
+        
+        export_btn = Gtk.Button(label="Export...")
+        export_btn.add_css_class("suggested-action")
+        export_btn.connect("clicked", self.on_export)
+        button_box.append(export_btn)
+    
+    def on_export(self, button):
+        """Handle export button click."""
+        # Get selected format
+        format_id = self.format_combo.get_active_id()
+        
+        # Get selected columns
+        selected_columns = [name for name, check in self.column_checkboxes.items() if check.get_active()]
+        if not selected_columns:
+            self.parent.show_error("Please select at least one column")
+            return
+        
+        # Get scope
+        scope = self.scope_combo.get_active_id()
+        
+        # Get data
+        if scope == "selected" and self.selected_pids:
+            processes = []
+            all_processes = self.process_manager.get_processes(show_all=True, my_processes=False, active_only=False, show_kernel_threads=True)
+            for proc in all_processes:
+                if proc['pid'] in self.selected_pids:
+                    processes.append(proc)
+        else:
+            # Get all visible processes from list store
+            processes = []
+            for row in self.list_store:
+                pid = row[6]  # PID column
+                all_processes = self.process_manager.get_processes(show_all=True, my_processes=False, active_only=False, show_kernel_threads=True)
+                for proc in all_processes:
+                    if proc['pid'] == pid:
+                        processes.append(proc)
+                        break
+        
+        if not processes:
+            self.parent.show_error("No processes to export")
+            return
+        
+        # Create file chooser
+        dialog = Gtk.FileChooserNative(
+            title="Save Export File",
+            transient_for=self,
+            action=Gtk.FileChooserAction.SAVE,
+            accept_label="Save",
+            cancel_label="Cancel"
+        )
+        
+        # Set default filename
+        ext = format_id
+        dialog.set_current_name(f"processes.{ext}")
+        
+        # Add filters
+        if format_id == "csv":
+            filter_csv = Gtk.FileFilter()
+            filter_csv.set_name("CSV files")
+            filter_csv.add_pattern("*.csv")
+            dialog.add_filter(filter_csv)
+        elif format_id == "json":
+            filter_json = Gtk.FileFilter()
+            filter_json.set_name("JSON files")
+            filter_json.add_pattern("*.json")
+            dialog.add_filter(filter_json)
+        else:
+            filter_txt = Gtk.FileFilter()
+            filter_txt.set_name("Text files")
+            filter_txt.add_pattern("*.txt")
+            dialog.add_filter(filter_txt)
+        
+        dialog.connect("response", lambda d, response: self.on_file_selected(d, response, format_id, selected_columns, processes))
+        dialog.show()
+    
+    def on_file_selected(self, dialog, response, format_id, selected_columns, processes):
+        """Handle file selection."""
+        if response != Gtk.ResponseType.ACCEPT:
+            dialog.destroy()
+            return
+        
+        file_path = dialog.get_file().get_path()
+        dialog.destroy()
+        
+        try:
+            # Export based on format
+            if format_id == "csv":
+                self.export_csv(file_path, selected_columns, processes)
+            elif format_id == "json":
+                self.export_json(file_path, selected_columns, processes)
+            else:
+                self.export_txt(file_path, selected_columns, processes)
+            
+            self.parent.show_error(f"Exported {len(processes)} processes to {file_path}")
+            self.close()
+        except Exception as e:
+            self.parent.show_error(f"Export failed: {e}")
+    
+    def export_csv(self, file_path, columns, processes):
+        """Export to CSV format."""
+        import csv
+        
+        # Map column names to process keys
+        col_map = {
+            "Process Name": "name",
+            "CPU %": "cpu",
+            "Memory": "memory",
+            "Started": "started",
+            "User": "user",
+            "Nice": "nice",
+            "PID": "pid"
+        }
+        
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(columns)
+            
+            for proc in processes:
+                row = []
+                for col in columns:
+                    key = col_map.get(col, col.lower())
+                    if key == "cpu":
+                        row.append(f"{proc.get(key, 0):.1f}%")
+                    elif key == "memory":
+                        # Format memory
+                        mem = proc.get(key, 0)
+                        if mem >= 1024**3:
+                            row.append(f"{mem / (1024**3):.2f} GB")
+                        elif mem >= 1024**2:
+                            row.append(f"{mem / (1024**2):.2f} MB")
+                        elif mem >= 1024:
+                            row.append(f"{mem / 1024:.2f} KB")
+                        else:
+                            row.append(f"{mem} B")
+                    else:
+                        row.append(str(proc.get(key, "")))
+                writer.writerow(row)
+    
+    def export_json(self, file_path, columns, processes):
+        """Export to JSON format."""
+        import json
+        
+        col_map = {
+            "Process Name": "name",
+            "CPU %": "cpu",
+            "Memory": "memory",
+            "Started": "started",
+            "User": "user",
+            "Nice": "nice",
+            "PID": "pid"
+        }
+        
+        data = []
+        for proc in processes:
+            item = {}
+            for col in columns:
+                key = col_map.get(col, col.lower())
+                item[col] = proc.get(key, "")
+            data.append(item)
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+    
+    def export_txt(self, file_path, columns, processes):
+        """Export to plain text format."""
+        col_map = {
+            "Process Name": "name",
+            "CPU %": "cpu",
+            "Memory": "memory",
+            "Started": "started",
+            "User": "user",
+            "Nice": "nice",
+            "PID": "pid"
+        }
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            # Header
+            f.write("\t".join(columns) + "\n")
+            f.write("-" * (len("\t".join(columns))) + "\n")
+            
+            # Data
+            for proc in processes:
+                row = []
+                for col in columns:
+                    key = col_map.get(col, col.lower())
+                    if key == "cpu":
+                        row.append(f"{proc.get(key, 0):.1f}%")
+                    elif key == "memory":
+                        mem = proc.get(key, 0)
+                        if mem >= 1024**3:
+                            row.append(f"{mem / (1024**3):.2f} GB")
+                        elif mem >= 1024**2:
+                            row.append(f"{mem / (1024**2):.2f} MB")
+                        elif mem >= 1024:
+                            row.append(f"{mem / 1024:.2f} KB")
+                        else:
+                            row.append(f"{mem} B")
+                    else:
+                        row.append(str(proc.get(key, "")))
+                f.write("\t".join(row) + "\n")
+
+
+class AdvancedFilterDialog(Adw.Window):
+    """Dialog for advanced filtering with multiple criteria."""
+    
+    def __init__(self, parent, settings):
+        """
+        Args:
+            parent: Parent window
+            settings: Settings instance
+        """
+        super().__init__(
+            transient_for=parent,
+            modal=True,
+            title="Advanced Filter",
+            default_width=500,
+            default_height=600,
+        )
+        
+        self.parent = parent
+        self.settings = settings
+        self.filter_presets = settings.get("filter_presets", [])
+        
+        self.build_ui()
+    
+    def build_ui(self):
+        """Build the dialog UI."""
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_content(main_box)
+        
+        # Header bar
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(True)
+        main_box.append(header)
+        
+        # Scrolled content
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_start(24)
+        content_box.set_margin_end(24)
+        content_box.set_margin_top(16)
+        content_box.set_margin_bottom(24)
+        scrolled.set_child(content_box)
+        main_box.append(scrolled)
+        
+        # CPU range
+        cpu_group = Adw.PreferencesGroup()
+        cpu_group.set_title("CPU Usage")
+        content_box.append(cpu_group)
+        
+        self.cpu_min_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=0.1))
+        self.cpu_max_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=100, lower=0, upper=100, step_increment=0.1))
+        self.cpu_min_spin.set_numeric(True)
+        self.cpu_max_spin.set_numeric(True)
+        
+        cpu_row = Adw.ActionRow()
+        cpu_row.set_title("CPU Range (%)")
+        cpu_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        cpu_box.append(self.cpu_min_spin)
+        cpu_box.append(Gtk.Label(label="to"))
+        cpu_box.append(self.cpu_max_spin)
+        cpu_row.add_suffix(cpu_box)
+        cpu_group.add(cpu_row)
+        
+        # Memory range
+        mem_group = Adw.PreferencesGroup()
+        mem_group.set_title("Memory Usage")
+        content_box.append(mem_group)
+        
+        self.mem_min_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=0.1))
+        self.mem_max_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=100, lower=0, upper=100, step_increment=0.1))
+        self.mem_min_spin.set_numeric(True)
+        self.mem_max_spin.set_numeric(True)
+        
+        mem_row = Adw.ActionRow()
+        mem_row.set_title("Memory Range (%)")
+        mem_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        mem_box.append(self.mem_min_spin)
+        mem_box.append(Gtk.Label(label="to"))
+        mem_box.append(self.mem_max_spin)
+        mem_row.add_suffix(mem_box)
+        mem_group.add(mem_row)
+        
+        # User filter
+        user_group = Adw.PreferencesGroup()
+        user_group.set_title("User")
+        content_box.append(user_group)
+        
+        self.user_entry = Gtk.Entry()
+        self.user_entry.set_placeholder_text("Filter by username (regex supported)")
+        
+        user_row = Adw.ActionRow()
+        user_row.set_title("Username")
+        user_row.add_suffix(self.user_entry)
+        user_group.add(user_row)
+        
+        # State filter
+        state_group = Adw.PreferencesGroup()
+        state_group.set_title("Process State")
+        content_box.append(state_group)
+        
+        self.state_combo = Gtk.ComboBoxText()
+        self.state_combo.append("", "Any")
+        self.state_combo.append("R", "Running")
+        self.state_combo.append("S", "Sleeping")
+        self.state_combo.append("D", "Disk Sleep")
+        self.state_combo.append("Z", "Zombie")
+        self.state_combo.append("T", "Stopped")
+        self.state_combo.set_active_id("")
+        
+        state_row = Adw.ActionRow()
+        state_row.set_title("State")
+        state_row.add_suffix(self.state_combo)
+        state_group.add(state_row)
+        
+        # Regex toggle
+        regex_group = Adw.PreferencesGroup()
+        regex_group.set_title("Search Options")
+        content_box.append(regex_group)
+        
+        self.regex_check = Gtk.CheckButton(label="Use Regular Expressions")
+        regex_group.add(self.regex_check)
+        
+        # Buttons
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        button_box.set_halign(Gtk.Align.END)
+        button_box.set_margin_top(12)
+        content_box.append(button_box)
+        
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda b: self.close())
+        button_box.append(cancel_btn)
+        
+        apply_btn = Gtk.Button(label="Apply")
+        apply_btn.add_css_class("suggested-action")
+        apply_btn.connect("clicked", self.on_apply)
+        button_box.append(apply_btn)
+    
+    def on_apply(self, button):
+        """Apply the filter."""
+        # Store filter criteria (simplified - in real implementation, this would be used in refresh_processes)
+        # For now, we'll just close the dialog
+        # In a full implementation, we'd store these in settings and use them in the filter logic
+        self.close()
+
+
 class ShortcutsWindow(Adw.Window):
     """Window for displaying keyboard shortcuts."""
     
@@ -774,6 +1347,16 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.all_user_button.connect("toggled", self.on_all_user_toggled)
         header.pack_start(self.all_user_button)
         
+        # Tree view toggle button
+        self.tree_view_button = Gtk.ToggleButton()
+        tree_view_mode = self.settings.get("tree_view_mode", False)
+        self.tree_view_button.set_active(tree_view_mode)
+        # Use a fallback icon if view-list-tree-symbolic doesn't exist
+        self.tree_view_button.set_icon_name("view-list-symbolic")
+        self.tree_view_button.set_tooltip_text("Tree View" if not tree_view_mode else "List View")
+        self.tree_view_button.connect("toggled", self.on_tree_view_toggled)
+        header.pack_start(self.tree_view_button)
+        
         # Menu button
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
@@ -783,6 +1366,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         main_box.append(header)
         
         # Search bar (hidden by default, shown when typing)
+        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.search_bar = Gtk.SearchBar()
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_hexpand(True)
@@ -791,7 +1375,17 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         self.search_bar.set_child(self.search_entry)
         self.search_bar.connect_entry(self.search_entry)
         self.search_bar.set_search_mode(False)  # Hidden by default
-        main_box.append(self.search_bar)
+        
+        # Advanced filter button
+        self.advanced_filter_button = Gtk.Button()
+        self.advanced_filter_button.set_icon_name("view-filter-symbolic")
+        self.advanced_filter_button.set_tooltip_text("Advanced Filter")
+        self.advanced_filter_button.add_css_class("flat")
+        self.advanced_filter_button.connect("clicked", lambda b: self.on_advanced_filter())
+        search_box.append(self.search_bar)
+        search_box.append(self.advanced_filter_button)
+        
+        main_box.append(search_box)
         
         # Key controller for typing to trigger search and tab switching
         key_controller = Gtk.EventControllerKey()
@@ -835,10 +1429,20 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         """Create the application menu."""
         menu = Gio.Menu()
         
+        # File submenu
+        file_menu = Gio.Menu()
+        file_menu.append("Export...", "win.export")
+        menu.append_submenu("File", file_menu)
+        
         menu.append("Preferences", "app.preferences")
         menu.append("Keyboard Shortcuts", "app.shortcuts")
         menu.append("About Process Manager", "app.about")
         menu.append("Quit", "app.quit")
+        
+        # Add window actions
+        export_action = Gio.SimpleAction.new("export", None)
+        export_action.connect("activate", lambda a, p: self.on_export())
+        self.add_action(export_action)
         
         return menu
     
@@ -1021,6 +1625,21 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         if auto_refresh:
             button.set_icon_name("media-playback-pause-symbolic")
             button.set_tooltip_text("Pause Auto Refresh")
+    
+    def on_tree_view_toggled(self, button):
+        """Handle tree view toggle button."""
+        tree_view_mode = button.get_active()
+        # Save the toggle state
+        self.settings.set("tree_view_mode", tree_view_mode)
+        
+        # Update tooltip
+        if tree_view_mode:
+            button.set_tooltip_text("List View")
+        else:
+            button.set_tooltip_text("Tree View")
+        
+        # Refresh to rebuild view
+        self.refresh_processes()
             # Start the timer (will stop existing timer if any)
             self.start_refresh_timer()
         else:
@@ -1045,14 +1664,25 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def create_process_view(self):
         """Create the process list view."""
-        # Create list store: name, cpu, memory, started, user, nice, pid
-        self.list_store = Gtk.ListStore(str, str, str, str, str, str, int)
+        # Check if tree view mode is enabled
+        tree_view_mode = self.settings.get("tree_view_mode", False)
+        
+        if tree_view_mode:
+            # Create tree store for tree view
+            self.tree_store = Gtk.TreeStore(str, str, str, str, str, str, int)
+            self.list_store = self.tree_store  # Use tree_store as list_store for compatibility
+        else:
+            # Create list store: name, cpu, memory, started, user, nice, pid
+            self.list_store = Gtk.ListStore(str, str, str, str, str, str, int)
         
         # Create tree view
         tree_view = Gtk.TreeView(model=self.list_store)
         tree_view.set_headers_clickable(True)
         tree_view.set_enable_search(False)
         tree_view.set_search_column(-1)  # Disable search completely
+        tree_view.set_show_expanders(tree_view_mode)
+        if tree_view_mode:
+            tree_view.set_level_indentation(20)
         
         # Selection
         selection = tree_view.get_selection()
@@ -2110,6 +2740,126 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Update the selection panel for current tab
         self.update_selection_panel()
     
+    def _build_process_tree(self, processes):
+        """Build a tree structure from processes based on parent-child relationships.
+        
+        Returns:
+            Dict mapping PID to dict with 'proc' (process data) and 'children' (list of child PIDs)
+        """
+        # Create process map
+        process_map = {proc['pid']: proc for proc in processes}
+        
+        # Build tree structure
+        tree = {}
+        roots = []
+        
+        for proc in processes:
+            pid = proc['pid']
+            ppid = proc.get('ppid', 1)
+            
+            if pid not in tree:
+                tree[pid] = {'proc': proc, 'children': []}
+            
+            # If parent exists in our process list, add as child
+            if ppid in process_map and ppid != pid:
+                if ppid not in tree:
+                    tree[ppid] = {'proc': process_map[ppid], 'children': []}
+                tree[ppid]['children'].append(pid)
+            else:
+                # Root process (no parent in our list or parent is init/systemd)
+                roots.append(pid)
+        
+        return {'tree': tree, 'roots': roots}
+    
+    def _populate_tree_store(self, tree_store, parent_iter, tree_data):
+        """Populate tree store with process tree data."""
+        tree = tree_data['tree']
+        roots = tree_data['roots']
+        
+        # Sort roots by PID for consistent ordering
+        roots.sort()
+        
+        for root_pid in roots:
+            self._add_tree_node(tree_store, parent_iter, tree, root_pid)
+    
+    def _add_tree_node(self, tree_store, parent_iter, tree, pid):
+        """Add a tree node and its children recursively."""
+        if pid not in tree:
+            return
+        
+        node = tree[pid]
+        proc = node['proc']
+        
+        # Add this node
+        iter = tree_store.append(parent_iter, [
+            proc['name'],
+            f"{proc['cpu']:.1f}%",
+            self.format_memory(proc['memory']),
+            proc['started'],
+            proc['user'],
+            str(proc['nice']),
+            proc['pid']
+        ])
+        
+        # Add children (sorted by PID)
+        children = sorted(node['children'])
+        for child_pid in children:
+            self._add_tree_node(tree_store, iter, tree, child_pid)
+    
+    def _restore_tree_selection(self, tree_store, parent_iter, selection):
+        """Restore selection in tree view by PID."""
+        iter = tree_store.iter_children(parent_iter) if parent_iter else tree_store.get_iter_first()
+        
+        while iter:
+            pid = tree_store.get_value(iter, 6)  # PID column
+            path = tree_store.get_path(iter)
+            
+            if pid in self.selected_pids:
+                selection.select_path(path)
+            
+            # Check children
+            child_iter = tree_store.iter_children(iter)
+            if child_iter:
+                self._restore_tree_selection(tree_store, iter, selection)
+            
+            iter = tree_store.iter_next(iter)
+    
+    def _recreate_tree_view(self):
+        """Recreate the process view with tree store for tree view mode."""
+        # Get current scrolled window
+        scrolled = self.tree_view.get_parent()
+        if scrolled:
+            scrolled.set_child(None)
+        
+        # Create tree store
+        self.tree_store = Gtk.TreeStore(str, str, str, str, str, str, int)
+        self.list_store = self.tree_store  # Use tree_store as list_store for compatibility
+        
+        # Update tree view to use tree store
+        self.tree_view.set_model(self.tree_store)
+        self.tree_view.set_show_expanders(True)
+        self.tree_view.set_level_indentation(20)
+        
+        if scrolled:
+            scrolled.set_child(self.tree_view)
+    
+    def _recreate_list_view(self):
+        """Recreate the process view with list store for flat view mode."""
+        # Get current scrolled window
+        scrolled = self.tree_view.get_parent()
+        if scrolled:
+            scrolled.set_child(None)
+        
+        # Create list store
+        self.list_store = Gtk.ListStore(str, str, str, str, str, str, int)
+        
+        # Update tree view to use list store
+        self.tree_view.set_model(self.list_store)
+        self.tree_view.set_show_expanders(False)
+        
+        if scrolled:
+            scrolled.set_child(self.tree_view)
+    
     def refresh_processes(self):
         """Refresh the process list."""
         # Only refresh if we're on the processes tab
@@ -2166,13 +2916,31 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
             show_kernel_threads=show_kernel_threads
         )
         
-        # Filter by search
+        # Filter by search (with regex support)
         if search_text:
+            import re
+            # Try to compile as regex, fall back to simple search if invalid
+            try:
+                regex_pattern = re.compile(search_text, re.IGNORECASE)
+                use_regex = True
+            except re.error:
+                use_regex = False
+            
+            def matches_search(proc):
+                """Check if process matches search text."""
+                if use_regex:
+                    return (regex_pattern.search(proc['name']) or
+                           regex_pattern.search(str(proc['pid'])) or
+                           regex_pattern.search(proc['user']))
+                else:
+                    search_lower = search_text.lower()
+                    return (search_lower in proc['name'].lower() or
+                           search_lower in str(proc['pid']) or
+                           search_lower in proc['user'].lower())
+            
             # When searching, hide already selected items from results
             filtered_processes = [p for p in processes if 
-                        (search_text in p['name'].lower() or 
-                         search_text in str(p['pid']) or
-                         search_text in p['user'].lower()) and
+                        matches_search(p) and
                         p['pid'] not in self.selected_pids]
         else:
             filtered_processes = processes
@@ -2187,26 +2955,49 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
                     # Add selected process to the list
                     filtered_processes.append(all_process_map[pid])
         
-        # Update list store
+        # Update list store or tree store based on mode
         self._updating_selection = True
-        self.list_store.clear()
-        for proc in filtered_processes:
-            self.list_store.append([
-                proc['name'],
-                f"{proc['cpu']:.1f}%",
-                self.format_memory(proc['memory']),
-                proc['started'],
-                proc['user'],
-                str(proc['nice']),
-                proc['pid']
-            ])
+        tree_view_mode = self.settings.get("tree_view_mode", False)
+        
+        if tree_view_mode:
+            # Use tree store for tree view
+            if not hasattr(self, 'tree_store') or not isinstance(self.list_store, Gtk.TreeStore):
+                # Recreate view with tree store
+                self._recreate_tree_view()
+            
+            self.tree_store.clear()
+            # Build tree structure
+            tree_data = self._build_process_tree(filtered_processes)
+            self._populate_tree_store(self.tree_store, None, tree_data)
+        else:
+            # Use list store for flat view
+            if not isinstance(self.list_store, Gtk.ListStore):
+                # Recreate view with list store
+                self._recreate_list_view()
+            
+            self.list_store.clear()
+            for proc in filtered_processes:
+                self.list_store.append([
+                    proc['name'],
+                    f"{proc['cpu']:.1f}%",
+                    self.format_memory(proc['memory']),
+                    proc['started'],
+                    proc['user'],
+                    str(proc['nice']),
+                    proc['pid']
+                ])
         
         # Restore selection by PID from persistent selection
         selection = self.tree_view.get_selection()
         if self.selected_pids:
-            for i, row in enumerate(self.list_store):
-                if row[6] in self.selected_pids:  # PID column
-                    selection.select_path(Gtk.TreePath.new_from_indices([i]))
+            if tree_view_mode:
+                # Restore selection in tree view
+                self._restore_tree_selection(self.tree_store, None, selection)
+            else:
+                # Restore selection in list view
+                for i, row in enumerate(self.list_store):
+                    if row[6] in self.selected_pids:  # PID column
+                        selection.select_path(Gtk.TreePath.new_from_indices([i]))
         
         self._updating_selection = False
         
@@ -2983,6 +3774,12 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         # Create menu model
         menu = Gio.Menu()
         
+        # Change Priority action
+        priority_action = Gio.SimpleAction.new("context-priority", None)
+        priority_action.connect("activate", lambda a, p: self.on_change_priority(None))
+        self.add_action(priority_action)
+        menu.append("Change Priority...", "win.context-priority")
+        
         # End Process action
         end_action = Gio.SimpleAction.new("context-kill", None)
         end_action.connect("activate", lambda a, p: self.on_kill_process(None))
@@ -3076,5 +3873,40 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Show the details dialog
         dialog = ProcessDetailsDialog(self, self.process_manager, pid, process_info)
+        dialog.present()
+    
+    def on_change_priority(self, button):
+        """Change priority (renice) for selected process(es)."""
+        tree_view, _, pid_col = self._get_current_tree_view_info()
+        selection = tree_view.get_selection()
+        model, paths = selection.get_selected_rows()
+        
+        if not paths:
+            return
+        
+        processes = []
+        for path in paths:
+            iter = model.get_iter(path)
+            pid = model.get_value(iter, pid_col)
+            name = model.get_value(iter, 0)
+            # Get current nice value
+            nice_str = model.get_value(iter, 5)  # Nice column
+            try:
+                nice = int(nice_str)
+            except (ValueError, TypeError):
+                nice = 0
+            processes.append({'pid': pid, 'name': name, 'nice': nice})
+        
+        dialog = ReniceDialog(self, self.process_manager, processes)
+        dialog.present()
+    
+    def on_export(self):
+        """Export process list to file."""
+        dialog = ExportDialog(self, self.process_manager, self.tree_view, self.list_store, self.selected_pids)
+        dialog.present()
+    
+    def on_advanced_filter(self):
+        """Show advanced filter dialog."""
+        dialog = AdvancedFilterDialog(self, self.settings)
         dialog.present()
 

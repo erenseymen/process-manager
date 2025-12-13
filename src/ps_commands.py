@@ -123,7 +123,8 @@ def get_processes_via_ps(
                     'user': user,
                     'nice': nice,
                     'uid': uid,
-                    'state': state
+                    'state': state,
+                    'ppid': ppid
                 })
                 
             except (ValueError, IndexError):
