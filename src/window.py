@@ -897,16 +897,34 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         if count == 0:
             return
         
-        # Calculate totals
-        total_cpu = sum(self.parse_cpu_str(info.get('cpu_str', '0%')) 
-                       for info in self.selected_pids.values())
-        total_mem = sum(self.parse_mem_str(info.get('mem_str', '0 B')) 
-                       for info in self.selected_pids.values())
-        
-        # Update title with totals
-        title_label.set_label(
-            f"Selected ({count}): CPU {total_cpu:.1f}% | Mem {self.format_memory(total_mem)}"
-        )
+        # Calculate totals based on current tab
+        if self.current_tab == 'gpu':
+            # GPU tab: show GPU and CPU usage
+            total_gpu = sum(info.get('gpu_usage', 0.0) for info in self.selected_pids.values())
+            total_cpu = sum(self.parse_cpu_str(info.get('cpu_str', '0%')) 
+                           for info in self.selected_pids.values())
+            # Update title with totals
+            title_label.set_label(
+                f"Selected ({count}): GPU {total_gpu:.1f}% | CPU {total_cpu:.1f}%"
+            )
+        elif self.current_tab == 'ports':
+            # Ports tab: show sent and received
+            total_sent = sum(info.get('bytes_sent', 0) for info in self.selected_pids.values())
+            total_recv = sum(info.get('bytes_recv', 0) for info in self.selected_pids.values())
+            # Update title with totals
+            title_label.set_label(
+                f"Selected ({count}): Sent {self.format_bytes(total_sent)} | Received {self.format_bytes(total_recv)}"
+            )
+        else:
+            # Processes tab: show CPU and Memory
+            total_cpu = sum(self.parse_cpu_str(info.get('cpu_str', '0%')) 
+                           for info in self.selected_pids.values())
+            total_mem = sum(self.parse_mem_str(info.get('mem_str', '0 B')) 
+                           for info in self.selected_pids.values())
+            # Update title with totals
+            title_label.set_label(
+                f"Selected ({count}): CPU {total_cpu:.1f}% | Mem {self.format_memory(total_mem)}"
+            )
         
         # Clear existing rows
         while True:
@@ -920,26 +938,63 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         for pid, info in self.selected_pids.items():
             name = info.get('name', 'Unknown')
             if name not in groups:
-                groups[name] = {'pids': [], 'cpu': 0.0, 'mem': 0}
+                if self.current_tab == 'gpu':
+                    groups[name] = {'pids': [], 'gpu': 0.0, 'cpu': 0.0}
+                elif self.current_tab == 'ports':
+                    groups[name] = {'pids': [], 'sent': 0, 'recv': 0}
+                else:
+                    groups[name] = {'pids': [], 'cpu': 0.0, 'mem': 0}
             groups[name]['pids'].append(pid)
-            groups[name]['cpu'] += self.parse_cpu_str(info.get('cpu_str', '0%'))
-            groups[name]['mem'] += self.parse_mem_str(info.get('mem_str', '0 B'))
+            if self.current_tab == 'gpu':
+                groups[name]['gpu'] += info.get('gpu_usage', 0.0)
+                groups[name]['cpu'] += self.parse_cpu_str(info.get('cpu_str', '0%'))
+            elif self.current_tab == 'ports':
+                groups[name]['sent'] += info.get('bytes_sent', 0)
+                groups[name]['recv'] += info.get('bytes_recv', 0)
+            else:
+                groups[name]['cpu'] += self.parse_cpu_str(info.get('cpu_str', '0%'))
+                groups[name]['mem'] += self.parse_mem_str(info.get('mem_str', '0 B'))
         
         # Find max values for relative bar scaling
-        max_cpu = max((g['cpu'] for g in groups.values()), default=1.0) or 1.0
-        max_mem = max((g['mem'] for g in groups.values()), default=1) or 1
-        
-        # Sort groups by memory usage (descending) for comparison
-        sorted_groups = sorted(groups.items(), key=lambda x: x[1]['mem'], reverse=True)
+        if self.current_tab == 'gpu':
+            max_gpu = max((g['gpu'] for g in groups.values()), default=1.0) or 1.0
+            max_cpu = max((g['cpu'] for g in groups.values()), default=1.0) or 1.0
+            # Sort groups by GPU usage (descending) for comparison
+            sorted_groups = sorted(groups.items(), key=lambda x: x[1]['gpu'], reverse=True)
+        elif self.current_tab == 'ports':
+            max_sent = max((g['sent'] for g in groups.values()), default=1) or 1
+            max_recv = max((g['recv'] for g in groups.values()), default=1) or 1
+            # Sort groups by sent bytes (descending) for comparison
+            sorted_groups = sorted(groups.items(), key=lambda x: x[1]['sent'], reverse=True)
+        else:
+            max_cpu = max((g['cpu'] for g in groups.values()), default=1.0) or 1.0
+            max_mem = max((g['mem'] for g in groups.values()), default=1) or 1
+            # Sort groups by memory usage (descending) for comparison
+            sorted_groups = sorted(groups.items(), key=lambda x: x[1]['mem'], reverse=True)
         
         # Create comparison rows for each group
         for name, group_info in sorted_groups:
             pids = sorted(group_info['pids'])
-            row = self.create_comparison_row(name, pids, group_info['cpu'], group_info['mem'], max_cpu, max_mem)
+            if self.current_tab == 'gpu':
+                row = self.create_comparison_row(name, pids, group_info['gpu'], group_info['cpu'], max_gpu, max_cpu, tab_type='gpu')
+            elif self.current_tab == 'ports':
+                row = self.create_comparison_row(name, pids, group_info['sent'], group_info['recv'], max_sent, max_recv, tab_type='ports')
+            else:
+                row = self.create_comparison_row(name, pids, group_info['cpu'], group_info['mem'], max_cpu, max_mem, tab_type='processes')
             selection_list.append(row)
     
-    def create_comparison_row(self, name, pids, total_cpu, total_mem, max_cpu, max_mem):
-        """Create a comparison row widget for a selected process group with memory/CPU bars."""
+    def create_comparison_row(self, name, pids, value1, value2, max_value1, max_value2, tab_type='processes'):
+        """Create a comparison row widget for a selected process group with bars.
+        
+        Args:
+            name: Process name
+            pids: List of PIDs
+            value1: First value (CPU for processes/gpu, GPU for gpu tab, Sent for ports)
+            value2: Second value (Memory for processes, CPU for gpu tab, Received for ports)
+            max_value1: Maximum value1 for scaling
+            max_value2: Maximum value2 for scaling
+            tab_type: 'processes', 'gpu', or 'ports'
+        """
         # Main row container
         row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         row_box.add_css_class("comparison-row")
@@ -990,69 +1045,197 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         bars_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         bars_box.add_css_class("comparison-bars")
         
-        # Memory bar (primary comparison)
-        mem_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        
-        mem_label = Gtk.Label(label="Mem")
-        mem_label.add_css_class("bar-label")
-        mem_label.set_width_chars(4)
-        mem_label.set_xalign(0)
-        mem_bar_box.append(mem_label)
-        
-        # Memory progress bar
-        mem_fraction = (total_mem / max_mem) if max_mem > 0 else 0
-        mem_bar = Gtk.ProgressBar()
-        mem_bar.set_fraction(mem_fraction)
-        mem_bar.set_hexpand(True)
-        mem_bar.add_css_class("comparison-mem-bar")
-        # Add color class based on absolute memory usage
-        if total_mem > 1024 * 1024 * 1024:  # > 1 GiB
-            mem_bar.add_css_class("bar-high")
-        elif total_mem > 256 * 1024 * 1024:  # > 256 MiB
-            mem_bar.add_css_class("bar-medium")
+        if tab_type == 'gpu':
+            # GPU tab: GPU bar (primary) and CPU bar
+            # GPU bar
+            gpu_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            
+            gpu_label = Gtk.Label(label="GPU")
+            gpu_label.add_css_class("bar-label")
+            gpu_label.set_width_chars(4)
+            gpu_label.set_xalign(0)
+            gpu_bar_box.append(gpu_label)
+            
+            gpu_fraction = (value1 / max_value1) if max_value1 > 0 else 0
+            gpu_bar = Gtk.ProgressBar()
+            gpu_bar.set_fraction(gpu_fraction)
+            gpu_bar.set_hexpand(True)
+            gpu_bar.add_css_class("comparison-gpu-bar")
+            # Add color class based on absolute GPU usage
+            if value1 > 50:
+                gpu_bar.add_css_class("bar-high")
+            elif value1 > 10:
+                gpu_bar.add_css_class("bar-medium")
+            else:
+                gpu_bar.add_css_class("bar-low")
+            gpu_bar_box.append(gpu_bar)
+            
+            gpu_value = Gtk.Label(label=f"{value1:.1f}%")
+            gpu_value.add_css_class("bar-value")
+            gpu_value.set_width_chars(10)
+            gpu_value.set_xalign(1)
+            gpu_bar_box.append(gpu_value)
+            
+            bars_box.append(gpu_bar_box)
+            
+            # CPU bar
+            cpu_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            
+            cpu_label = Gtk.Label(label="CPU")
+            cpu_label.add_css_class("bar-label")
+            cpu_label.set_width_chars(4)
+            cpu_label.set_xalign(0)
+            cpu_bar_box.append(cpu_label)
+            
+            cpu_fraction = (value2 / max_value2) if max_value2 > 0 else 0
+            cpu_bar = Gtk.ProgressBar()
+            cpu_bar.set_fraction(cpu_fraction)
+            cpu_bar.set_hexpand(True)
+            cpu_bar.add_css_class("comparison-cpu-bar")
+            # Add color class based on absolute CPU usage
+            if value2 > 50:
+                cpu_bar.add_css_class("bar-high")
+            elif value2 > 10:
+                cpu_bar.add_css_class("bar-medium")
+            else:
+                cpu_bar.add_css_class("bar-low")
+            cpu_bar_box.append(cpu_bar)
+            
+            cpu_value = Gtk.Label(label=f"{value2:.1f}%")
+            cpu_value.add_css_class("bar-value")
+            cpu_value.set_width_chars(10)
+            cpu_value.set_xalign(1)
+            cpu_bar_box.append(cpu_value)
+            
+            bars_box.append(cpu_bar_box)
+            
+        elif tab_type == 'ports':
+            # Ports tab: Sent bar (primary) and Received bar
+            # Sent bar
+            sent_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            
+            sent_label = Gtk.Label(label="Sent")
+            sent_label.add_css_class("bar-label")
+            sent_label.set_width_chars(4)
+            sent_label.set_xalign(0)
+            sent_bar_box.append(sent_label)
+            
+            sent_fraction = (value1 / max_value1) if max_value1 > 0 else 0
+            sent_bar = Gtk.ProgressBar()
+            sent_bar.set_fraction(sent_fraction)
+            sent_bar.set_hexpand(True)
+            sent_bar.add_css_class("comparison-sent-bar")
+            # Add color class based on absolute sent bytes
+            if value1 > 1024 * 1024 * 1024:  # > 1 GiB
+                sent_bar.add_css_class("bar-high")
+            elif value1 > 100 * 1024 * 1024:  # > 100 MiB
+                sent_bar.add_css_class("bar-medium")
+            else:
+                sent_bar.add_css_class("bar-low")
+            sent_bar_box.append(sent_bar)
+            
+            sent_value = Gtk.Label(label=self.format_bytes(value1))
+            sent_value.add_css_class("bar-value")
+            sent_value.set_width_chars(10)
+            sent_value.set_xalign(1)
+            sent_bar_box.append(sent_value)
+            
+            bars_box.append(sent_bar_box)
+            
+            # Received bar
+            recv_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            
+            recv_label = Gtk.Label(label="Recv")
+            recv_label.add_css_class("bar-label")
+            recv_label.set_width_chars(4)
+            recv_label.set_xalign(0)
+            recv_bar_box.append(recv_label)
+            
+            recv_fraction = (value2 / max_value2) if max_value2 > 0 else 0
+            recv_bar = Gtk.ProgressBar()
+            recv_bar.set_fraction(recv_fraction)
+            recv_bar.set_hexpand(True)
+            recv_bar.add_css_class("comparison-recv-bar")
+            # Add color class based on absolute received bytes
+            if value2 > 1024 * 1024 * 1024:  # > 1 GiB
+                recv_bar.add_css_class("bar-high")
+            elif value2 > 100 * 1024 * 1024:  # > 100 MiB
+                recv_bar.add_css_class("bar-medium")
+            else:
+                recv_bar.add_css_class("bar-low")
+            recv_bar_box.append(recv_bar)
+            
+            recv_value = Gtk.Label(label=self.format_bytes(value2))
+            recv_value.add_css_class("bar-value")
+            recv_value.set_width_chars(10)
+            recv_value.set_xalign(1)
+            recv_bar_box.append(recv_value)
+            
+            bars_box.append(recv_bar_box)
+            
         else:
-            mem_bar.add_css_class("bar-low")
-        mem_bar_box.append(mem_bar)
-        
-        mem_value = Gtk.Label(label=self.format_memory(total_mem))
-        mem_value.add_css_class("bar-value")
-        mem_value.set_width_chars(10)
-        mem_value.set_xalign(1)
-        mem_bar_box.append(mem_value)
-        
-        bars_box.append(mem_bar_box)
-        
-        # CPU bar
-        cpu_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        
-        cpu_label = Gtk.Label(label="CPU")
-        cpu_label.add_css_class("bar-label")
-        cpu_label.set_width_chars(4)
-        cpu_label.set_xalign(0)
-        cpu_bar_box.append(cpu_label)
-        
-        # CPU progress bar
-        cpu_fraction = (total_cpu / max_cpu) if max_cpu > 0 else 0
-        cpu_bar = Gtk.ProgressBar()
-        cpu_bar.set_fraction(cpu_fraction)
-        cpu_bar.set_hexpand(True)
-        cpu_bar.add_css_class("comparison-cpu-bar")
-        # Add color class based on absolute CPU usage
-        if total_cpu > 50:
-            cpu_bar.add_css_class("bar-high")
-        elif total_cpu > 10:
-            cpu_bar.add_css_class("bar-medium")
-        else:
-            cpu_bar.add_css_class("bar-low")
-        cpu_bar_box.append(cpu_bar)
-        
-        cpu_value = Gtk.Label(label=f"{total_cpu:.1f}%")
-        cpu_value.add_css_class("bar-value")
-        cpu_value.set_width_chars(10)
-        cpu_value.set_xalign(1)
-        cpu_bar_box.append(cpu_value)
-        
-        bars_box.append(cpu_bar_box)
+            # Processes tab: Memory bar (primary) and CPU bar
+            # Memory bar
+            mem_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            
+            mem_label = Gtk.Label(label="Mem")
+            mem_label.add_css_class("bar-label")
+            mem_label.set_width_chars(4)
+            mem_label.set_xalign(0)
+            mem_bar_box.append(mem_label)
+            
+            mem_fraction = (value2 / max_value2) if max_value2 > 0 else 0
+            mem_bar = Gtk.ProgressBar()
+            mem_bar.set_fraction(mem_fraction)
+            mem_bar.set_hexpand(True)
+            mem_bar.add_css_class("comparison-mem-bar")
+            # Add color class based on absolute memory usage
+            if value2 > 1024 * 1024 * 1024:  # > 1 GiB
+                mem_bar.add_css_class("bar-high")
+            elif value2 > 256 * 1024 * 1024:  # > 256 MiB
+                mem_bar.add_css_class("bar-medium")
+            else:
+                mem_bar.add_css_class("bar-low")
+            mem_bar_box.append(mem_bar)
+            
+            mem_value = Gtk.Label(label=self.format_memory(value2))
+            mem_value.add_css_class("bar-value")
+            mem_value.set_width_chars(10)
+            mem_value.set_xalign(1)
+            mem_bar_box.append(mem_value)
+            
+            bars_box.append(mem_bar_box)
+            
+            # CPU bar
+            cpu_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            
+            cpu_label = Gtk.Label(label="CPU")
+            cpu_label.add_css_class("bar-label")
+            cpu_label.set_width_chars(4)
+            cpu_label.set_xalign(0)
+            cpu_bar_box.append(cpu_label)
+            
+            cpu_fraction = (value1 / max_value1) if max_value1 > 0 else 0
+            cpu_bar = Gtk.ProgressBar()
+            cpu_bar.set_fraction(cpu_fraction)
+            cpu_bar.set_hexpand(True)
+            cpu_bar.add_css_class("comparison-cpu-bar")
+            # Add color class based on absolute CPU usage
+            if value1 > 50:
+                cpu_bar.add_css_class("bar-high")
+            elif value1 > 10:
+                cpu_bar.add_css_class("bar-medium")
+            else:
+                cpu_bar.add_css_class("bar-low")
+            cpu_bar_box.append(cpu_bar)
+            
+            cpu_value = Gtk.Label(label=f"{value1:.1f}%")
+            cpu_value.add_css_class("bar-value")
+            cpu_value.set_width_chars(10)
+            cpu_value.set_xalign(1)
+            cpu_bar_box.append(cpu_value)
+            
+            bars_box.append(cpu_bar_box)
         
         row_box.append(bars_box)
         

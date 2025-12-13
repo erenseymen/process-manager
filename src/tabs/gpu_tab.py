@@ -198,15 +198,18 @@ class GPUTabMixin:
             for pid in pids_to_remove:
                 del self.selected_pids[pid]
         
-        # Update cpu/memory info for selected processes
+        # Get GPU process data (only when on GPU tab)
+        gpu_processes = self.gpu_stats.get_gpu_processes()
+        
+        # Update cpu/memory/gpu info for selected processes
         for pid in self.selected_pids:
             if pid in all_process_map:
                 proc = all_process_map[pid]
                 self.selected_pids[pid]['cpu_str'] = f"{proc['cpu']:.1f}%"
                 self.selected_pids[pid]['mem_str'] = self.format_memory(proc['memory'])
-        
-        # Get GPU process data (only when on GPU tab)
-        gpu_processes = self.gpu_stats.get_gpu_processes()
+                # Store GPU usage for selection panel
+                gpu_info = gpu_processes.get(pid, {})
+                self.selected_pids[pid]['gpu_usage'] = gpu_info.get('gpu_usage', 0.0)
         
         # Track processes that currently have GPU usage or are detected as GPU processes
         # (e.g., Intel processes with DRM file descriptors open, even with 0% usage)

@@ -250,6 +250,19 @@ class PortsTabMixin:
         # Get all open ports
         ports = self.port_stats.get_open_ports()
         
+        # Update sent/received bytes for selected processes
+        for pid in self.selected_pids:
+            # Sum up bytes_sent and bytes_recv for all ports of this PID
+            total_sent = 0
+            total_recv = 0
+            for port in ports:
+                if port.get('pid') == pid:
+                    total_sent += port.get('bytes_sent', 0)
+                    total_recv += port.get('bytes_recv', 0)
+            # Initialize or update bytes_sent and bytes_recv (even if 0)
+            self.selected_pids[pid]['bytes_sent'] = total_sent
+            self.selected_pids[pid]['bytes_recv'] = total_recv
+        
         # Filter by search text if provided
         if search_text:
             filtered_ports = []
