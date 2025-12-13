@@ -1128,6 +1128,14 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         cpu_change_threshold = self.settings.get("cpu_change_threshold")
         mem_change_threshold = self.settings.get("memory_change_threshold")
         
+        # Process names to filter out (our own refresh processes)
+        filtered_names = {'ps', 'flatpak-spawn'}
+        
+        # Helper function to check if process should be filtered
+        def should_filter_process(proc_name):
+            """Check if process should be filtered from high usage panel."""
+            return proc_name in filtered_names
+        
         # Get total memory for percentage calculation
         stats = self.system_stats.get_memory_info()
         mem_total = stats['mem_total']
@@ -1142,6 +1150,9 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         current_stats = {}
         current_pids = set()
         for proc in processes:
+            # Skip our own refresh processes
+            if should_filter_process(proc['name']):
+                continue
             pid = proc['pid']
             current_pids.add(pid)
             cpu_percent = proc['cpu']
@@ -1193,6 +1204,9 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         ended_pids = prev_pids - current_pids
         for pid in ended_pids:
             prev_info = self._prev_process_stats[pid]
+            # Skip our own refresh processes
+            if should_filter_process(prev_info['name']):
+                continue
             ended_processes.append({
                 'pid': pid,
                 'name': prev_info['name'],
