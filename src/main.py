@@ -16,7 +16,7 @@ gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, Gio, Gdk
 
-from .constants import APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE, APP_ISSUE_URL, APP_CSS
+from .constants import APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE, APP_ISSUE_URL
 from .window import ProcessManagerWindow
 from .settings import Settings
 
@@ -74,9 +74,31 @@ class ProcessManagerApplication(Adw.Application):
         self.set_accels_for_action("app.shortcuts", ["<Control>question"])
     
     def _load_css(self) -> None:
-        """Load application CSS styles."""
+        """Load application CSS styles from external file."""
+        import os
+        from pathlib import Path
+        
         css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(APP_CSS.encode())
+        
+        # Try multiple locations for CSS file
+        css_paths = [
+            # Development: relative to source
+            Path(__file__).parent.parent / 'data' / 'style.css',
+            # Installed: in pkgdatadir
+            Path('/app/share/process-manager/style.css'),  # Flatpak
+            Path('/usr/share/process-manager/style.css'),  # System install
+            Path('/usr/local/share/process-manager/style.css'),  # Local install
+        ]
+        
+        for css_path in css_paths:
+            if css_path.exists():
+                css_provider.load_from_path(str(css_path))
+                break
+        else:
+            # Fallback: load inline CSS if file not found
+            from .constants import APP_CSS
+            css_provider.load_from_data(APP_CSS.encode())
+        
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(),
             css_provider,

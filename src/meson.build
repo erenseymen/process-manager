@@ -26,14 +26,28 @@ process_manager_sources = [
   'window.py',
   'process_manager.py',
   'ps_commands.py',
-  'system_stats.py',
-  'gpu_stats.py',
-  'port_stats.py',
-  'io_stats.py',
   'process_history.py',
   'settings.py',
   'preferences.py',
   'utils.py',
+]
+
+# Stats package (system, GPU, port, I/O statistics)
+stats_sources = [
+  'stats/__init__.py',
+  'stats/system.py',
+  'stats/ports.py',
+  'stats/io.py',
+]
+
+# GPU stats subpackage (vendor-specific implementations)
+stats_gpu_sources = [
+  'stats/gpu/__init__.py',
+  'stats/gpu/base.py',
+  'stats/gpu/detector.py',
+  'stats/gpu/nvidia.py',
+  'stats/gpu/intel.py',
+  'stats/gpu/amd.py',
 ]
 
 # Dialog classes
@@ -71,6 +85,8 @@ handlers_sources = [
 ]
 
 install_data(process_manager_sources, install_dir: moduledir)
+install_data(stats_sources, install_dir: moduledir / 'stats')
+install_data(stats_gpu_sources, install_dir: moduledir / 'stats' / 'gpu')
 install_data(dialogs_sources, install_dir: moduledir / 'dialogs')
 install_data(tabs_sources, install_dir: moduledir / 'tabs')
 install_data(ui_sources, install_dir: moduledir / 'ui')

@@ -1,0 +1,279 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# System statistics
+
+from __future__ import annotations
+
+import os
+import shutil
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional, Tuple
+
+if TYPE_CHECKING:
+    from typing import Dict, Union
+
+
+def get_host_proc_path() -> Path:
+    """Get the path to host /proc.
+    
+    Returns:
+        Path to /proc (or /run/host/proc in Flatpak).
+    """
+    if os.path.exists('/run/host/proc') and os.path.isdir('/run/host/proc'):
+        return Path('/run/host/proc')
+    return Path('/proc')
+
+
+class SystemStats:
+    """System memory and CPU statistics."""
+    
+    def __init__(self) -> None:
+        self._proc_path = get_host_proc_path()
+        # For CPU usage calculation, store previous reading
+        self._prev_cpu_times: Optional[Tuple[float, float]] = None  # (total, idle)
+        self._prev_cpu_time: float = 0.0
+    
+    def get_memory_info(self) -> Dict[str, int]:
+        """Get memory and swap information.
+        
+        Returns:
+            Dictionary with memory statistics in bytes.
+        """
+        meminfo: Dict[str, int] = {}
+        default_result = {
+            'mem_total': 0,
+            'mem_used': 0,
+            'mem_free': 0,
+            'mem_available': 0,
+            'mem_cache': 0,
+            'swap_total': 0,
+            'swap_used': 0,
+            'swap_free': 0
+        }
+        
+        try:
+            with open(self._proc_path / 'meminfo', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        key = parts[0].rstrip(':')
+                        value = int(parts[1]) * 1024  # Convert from KB to bytes
+                        meminfo[key] = value
+        except (OSError, IOError, ValueError) as e:
+            return default_result
+        
+        mem_total = meminfo.get('MemTotal', 0)
+        mem_free = meminfo.get('MemFree', 0)
+        mem_available = meminfo.get('MemAvailable', 0)
+        mem_buffers = meminfo.get('Buffers', 0)
+        mem_cached = meminfo.get('Cached', 0)
+        mem_sreclaimable = meminfo.get('SReclaimable', 0)
+        
+        # Cache includes buffers, cached, and reclaimable slab
+        mem_cache = mem_buffers + mem_cached + mem_sreclaimable
+        
+        # Used memory (excluding buffers/cache)
+        mem_used = mem_total - mem_available
+        
+        swap_total = meminfo.get('SwapTotal', 0)
+        swap_free = meminfo.get('SwapFree', 0)
+        swap_used = swap_total - swap_free
+        
+        return {
+            'mem_total': mem_total,
+            'mem_used': mem_used,
+            'mem_free': mem_free,
+            'mem_available': mem_available,
+            'mem_cache': mem_cache,
+            'swap_total': swap_total,
+            'swap_used': swap_used,
+            'swap_free': swap_free
+        }
+    
+    def get_cpu_info(self) -> Dict[str, Union[str, int, float]]:
+        """Get CPU information.
+        
+        Returns:
+            Dictionary with CPU model, cores, threads, and frequency.
+        """
+        cpu_info: Dict[str, Union[str, int, float]] = {
+            'model': 'Unknown',
+            'cores': 0,
+            'threads': 0,
+            'frequency': 0.0
+        }
+        
+        try:
+            with open(self._proc_path / 'cpuinfo', 'r') as f:
+                for line in f:
+                    if line.startswith('model name'):
+                        cpu_info['model'] = line.split(':')[1].strip()
+                    elif line.startswith('cpu cores'):
+                        cpu_info['cores'] = int(line.split(':')[1].strip())
+                    elif line.startswith('siblings'):
+                        cpu_info['threads'] = int(line.split(':')[1].strip())
+                    elif line.startswith('cpu MHz'):
+                        cpu_info['frequency'] = float(line.split(':')[1].strip())
+        except (OSError, IOError, ValueError, IndexError):
+            pass
+        
+        return cpu_info
+    
+    def get_uptime(self) -> float:
+        """Get system uptime in seconds.
+        
+        Returns:
+            System uptime in seconds, or 0 on error.
+        """
+        try:
+            with open(self._proc_path / 'uptime', 'r') as f:
+                uptime_seconds = float(f.read().split()[0])
+                return uptime_seconds
+        except (OSError, IOError, ValueError, IndexError):
+            return 0.0
+    
+    def format_uptime(self, seconds: float) -> str:
+        """Format uptime in human-readable format.
+        
+        Args:
+            seconds: Uptime in seconds.
+            
+        Returns:
+            Human-readable uptime string (e.g., "5d 3h 42m").
+        """
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
+        minutes = int((seconds % 3600) // 60)
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days}d")
+        if hours > 0:
+            parts.append(f"{hours}h")
+        parts.append(f"{minutes}m")
+        
+        return ' '.join(parts)
+    
+    def get_load_average(self) -> Dict[str, float]:
+        """Get system load average.
+        
+        Returns:
+            Dictionary with 1min, 5min, and 15min load averages.
+        """
+        try:
+            with open(self._proc_path / 'loadavg', 'r') as f:
+                parts = f.read().split()
+                return {
+                    '1min': float(parts[0]),
+                    '5min': float(parts[1]),
+                    '15min': float(parts[2])
+                }
+        except (OSError, IOError, ValueError, IndexError):
+            return {'1min': 0.0, '5min': 0.0, '15min': 0.0}
+    
+    def get_cpu_usage(self) -> Dict[str, float]:
+        """Get CPU usage percentage.
+        
+        Calculates CPU usage based on time spent in different states
+        between two calls. First call returns 0.0.
+        
+        Returns:
+            Dictionary with cpu_usage (0-100), and individual percentages.
+        """
+        result = {
+            'cpu_usage': 0.0,
+            'user': 0.0,
+            'system': 0.0,
+            'idle': 100.0,
+            'iowait': 0.0,
+        }
+        
+        try:
+            with open(self._proc_path / 'stat', 'r') as f:
+                for line in f:
+                    if line.startswith('cpu '):
+                        # cpu  user nice system idle iowait irq softirq steal guest guest_nice
+                        parts = line.split()
+                        if len(parts) >= 5:
+                            user = int(parts[1])
+                            nice = int(parts[2])
+                            system = int(parts[3])
+                            idle = int(parts[4])
+                            iowait = int(parts[5]) if len(parts) > 5 else 0
+                            irq = int(parts[6]) if len(parts) > 6 else 0
+                            softirq = int(parts[7]) if len(parts) > 7 else 0
+                            steal = int(parts[8]) if len(parts) > 8 else 0
+                            
+                            # Total = all time spent
+                            total = user + nice + system + idle + iowait + irq + softirq + steal
+                            idle_total = idle + iowait
+                            
+                            current_time = time.time()
+                            
+                            if self._prev_cpu_times is not None:
+                                prev_total, prev_idle = self._prev_cpu_times
+                                
+                                # Calculate differences
+                                total_diff = total - prev_total
+                                idle_diff = idle_total - prev_idle
+                                
+                                if total_diff > 0:
+                                    # CPU usage = (total - idle) / total * 100
+                                    cpu_usage = ((total_diff - idle_diff) / total_diff) * 100
+                                    result['cpu_usage'] = max(0.0, min(100.0, cpu_usage))
+                                    
+                                    # Calculate individual percentages
+                                    result['user'] = ((user + nice) - self._prev_user_nice) / total_diff * 100 if hasattr(self, '_prev_user_nice') else 0
+                                    result['system'] = (system - self._prev_system) / total_diff * 100 if hasattr(self, '_prev_system') else 0
+                                    result['idle'] = idle_diff / total_diff * 100
+                                    result['iowait'] = (iowait - self._prev_iowait) / total_diff * 100 if hasattr(self, '_prev_iowait') else 0
+                            
+                            # Store current values for next call
+                            self._prev_cpu_times = (total, idle_total)
+                            self._prev_cpu_time = current_time
+                            self._prev_user_nice = user + nice
+                            self._prev_system = system
+                            self._prev_iowait = iowait
+                        break
+        except (OSError, IOError, ValueError, IndexError):
+            pass
+        
+        return result
+    
+    def get_disk_info(self, path: str | None = None) -> Dict[str, int]:
+        """Get disk usage information for user's home directory.
+        
+        Args:
+            path: Path to check disk usage for. If None, uses user's home directory.
+        
+        Returns:
+            Dictionary with disk statistics in bytes.
+        """
+        default_result = {
+            'disk_total': 0,
+            'disk_used': 0,
+            'disk_free': 0
+        }
+        
+        # If no path specified, use user's home directory
+        if path is None:
+            try:
+                home_dir = os.path.expanduser('~')
+                # Fallback to HOME environment variable if expanduser fails
+                if not home_dir or home_dir == '~':
+                    home_dir = os.environ.get('HOME', '/')
+                path = home_dir
+            except (OSError, KeyError):
+                # Fallback to root if home directory cannot be determined
+                path = '/'
+        
+        try:
+            usage = shutil.disk_usage(path)
+            return {
+                'disk_total': usage.total,
+                'disk_used': usage.used,
+                'disk_free': usage.free
+            }
+        except (OSError, IOError):
+            return default_result
+

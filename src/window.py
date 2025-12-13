@@ -9,10 +9,7 @@ import os
 import signal
 from gi.repository import Gtk, Adw, GLib, Gio, Pango, Gdk
 from .process_manager import ProcessManager
-from .system_stats import SystemStats
-from .gpu_stats import GPUStats
-from .port_stats import PortStats
-from .io_stats import IOStats
+from .stats import SystemStats, GPUStats, PortStats, IOStats
 from .process_history import ProcessHistory
 from .dialogs import (
     ProcessDetailsDialog,
@@ -24,7 +21,7 @@ from .dialogs import (
 from .tabs import GPUTabMixin, PortsTabMixin
 from .ui import StatsBarMixin, SelectionPanelMixin, BookmarksPanelMixin, HighUsagePanelMixin
 from .handlers import KeyboardHandlerMixin, ContextMenuMixin, ProcessActionsMixin
-from .utils import parse_size_str
+from .utils import parse_size_str, format_bytes, format_rate
 
 
 # NOTE: All dialog classes have been moved to src/dialogs/ package
@@ -917,33 +914,15 @@ class ProcessManagerWindow(
     
     def format_memory(self, bytes_val):
         """Format memory in human-readable format."""
-        if bytes_val >= 1024 * 1024 * 1024:
-            return f"{bytes_val / (1024 * 1024 * 1024):.1f} GiB"
-        elif bytes_val >= 1024 * 1024:
-            return f"{bytes_val / (1024 * 1024):.1f} MiB"
-        elif bytes_val >= 1024:
-            return f"{bytes_val / 1024:.1f} KiB"
-        return f"{bytes_val} B"
+        return format_bytes(bytes_val)
     
     def format_rate(self, bytes_per_sec):
-        """Format I/O rate in human-readable format with /s suffix."""
-        if bytes_per_sec >= 1024 * 1024 * 1024:
-            return f"{bytes_per_sec / (1024 * 1024 * 1024):.1f} GiB"
-        elif bytes_per_sec >= 1024 * 1024:
-            return f"{bytes_per_sec / (1024 * 1024):.1f} MiB"
-        elif bytes_per_sec >= 1024:
-            return f"{bytes_per_sec / 1024:.1f} KiB"
-        return f"{int(bytes_per_sec)} B"
+        """Format I/O rate in human-readable format."""
+        return format_rate(bytes_per_sec)
     
     def format_bytes(self, bytes_val):
-        """Format bytes in human-readable format (same as format_memory but can handle float rates)."""
-        if bytes_val >= 1024 * 1024 * 1024:
-            return f"{bytes_val / (1024 * 1024 * 1024):.1f} GiB"
-        elif bytes_val >= 1024 * 1024:
-            return f"{bytes_val / (1024 * 1024):.1f} MiB"
-        elif bytes_val >= 1024:
-            return f"{bytes_val / 1024:.1f} KiB"
-        return f"{int(bytes_val)} B"
+        """Format bytes in human-readable format."""
+        return format_bytes(bytes_val)
     
     def start_refresh_timer(self):
         """Start the auto-refresh timer."""

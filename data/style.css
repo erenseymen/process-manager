@@ -191,3 +191,76 @@ preferencespage {
   margin: 12px;
 }
 
+/* High usage panel */
+.high-usage-panel {
+  background-color: alpha(@warning_color, 0.1);
+}
+
+.high-usage-chip {
+  padding: 4px 10px;
+  border-radius: 16px;
+  background-color: alpha(@warning_color, 0.15);
+  border: 1px solid alpha(@warning_color, 0.3);
+}
+
+.high-usage-chip.change-up {
+  background-color: alpha(@error_color, 0.15);
+  border-color: alpha(@error_color, 0.3);
+}
+
+.high-usage-chip.change-down {
+  background-color: alpha(@success_color, 0.15);
+  border-color: alpha(@success_color, 0.3);
+}
+
+.high-usage-chip .chip-name {
+  font-weight: bold;
+}
+
+.high-usage-chip .chip-value {
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+
+/* Selection chip */
+.selection-chip {
+  padding: 4px 10px;
+  border-radius: 16px;
+  background-color: alpha(@accent_bg_color, 0.15);
+  border: 1px solid alpha(@accent_color, 0.3);
+}
+
+.selection-chip .chip-name {
+  font-weight: bold;
+}
+
+.selection-chip .chip-stats {
+  font-size: 0.9em;
+  opacity: 0.7;
+}
+
+.selection-chip .chip-remove {
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0;
+}
+
+/* Keyboard key styling */
+.keycap {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background-color: alpha(@window_bg_color, 0.5);
+  border: 1px solid alpha(@borders, 0.5);
+  font-size: 0.9em;
+  font-weight: 500;
+}
+
+/* Bookmarks */
+.bookmarks-panel {
+  background-color: alpha(@accent_bg_color, 0.05);
+}
+
+.bookmarks-panel .heading {
+  font-weight: bold;
+  font-size: 0.9em;
+}
