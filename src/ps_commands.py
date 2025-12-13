@@ -238,6 +238,36 @@ def kill_process_via_host(pid: int, signal_name: str) -> None:
         raise ProcessLookupError(error_msg)
 
 
+def is_process_running_via_host(pid: int) -> bool:
+    """Check if a process is running on the host system.
+    
+    Uses flatpak-spawn --host to check host processes
+    when running in Flatpak sandbox.
+    
+    Args:
+        pid: The process ID to check.
+        
+    Returns:
+        True if the process is running, False otherwise.
+    """
+    cmd = ['kill', '-0', str(pid)]
+    
+    if is_flatpak():
+        full_cmd = ['flatpak-spawn', '--host'] + cmd
+    else:
+        full_cmd = cmd
+    
+    result = subprocess.run(full_cmd, capture_output=True, text=True)
+    # kill -0 returns 0 if the process exists (and we can signal it)
+    # Returns non-zero if process doesn't exist or we don't have permission
+    if result.returncode == 0:
+        return True
+    # Check stderr for permission denied (process exists but no permission)
+    if 'operation not permitted' in result.stderr.lower() or 'permission denied' in result.stderr.lower():
+        return True
+    return False
+
+
 def renice_process_via_host(pid: int, nice_value: int) -> None:
     """Change the nice value of a process.
     

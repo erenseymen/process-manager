@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Process termination dialog with status tracking
 
-import os
 import signal
+
+from ..ps_commands import is_process_running_via_host
 
 import gi
 gi.require_version('Gtk', '4.0')
@@ -294,14 +295,7 @@ class TerminationDialog(Adw.Window):
     
     def is_process_running(self, pid):
         """Check if a process is still running."""
-        try:
-            os.kill(pid, 0)  # Signal 0 doesn't kill, just checks
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            # Process exists but we don't have permission to signal it
-            return True
+        return is_process_running_via_host(pid)
     
     def on_kill_group(self, name, pids):
         """Handle kill button for a process group."""
