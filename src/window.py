@@ -1265,12 +1265,17 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
     def on_clear_selection(self, button):
         """Clear all selections."""
         self.selected_pids.clear()
+        # Also clear ports selection tracking
+        if hasattr(self, 'selected_port_keys'):
+            self.selected_port_keys.clear()
         self.update_selection_panel()
-        # Update tree view selection for both tabs
+        # Update tree view selection for all tabs
         self._updating_selection = True
         self.tree_view.get_selection().unselect_all()
         if hasattr(self, 'gpu_tree_view'):
             self.gpu_tree_view.get_selection().unselect_all()
+        if hasattr(self, 'ports_tree_view'):
+            self.ports_tree_view.get_selection().unselect_all()
         self._updating_selection = False
         self._refresh_current_tab()
     

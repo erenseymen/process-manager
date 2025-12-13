@@ -404,6 +404,9 @@ class PortsTabMixin:
         needs_tree_store = group_processes_mode and not isinstance(self.ports_list_store, Gtk.TreeStore)
         needs_list_store = not group_processes_mode and isinstance(self.ports_list_store, Gtk.TreeStore)
         
+        # Set flag BEFORE clearing to prevent selection-changed callback from running
+        self._updating_selection = True
+        
         if needs_tree_store:
             # Switch from ListStore to TreeStore
             self.ports_list_store = Gtk.TreeStore(str, int, str, str, int, str, int, str, str, str, str, str)
@@ -576,7 +579,6 @@ class PortsTabMixin:
                 ])
         
         # Restore selection by unique port keys from persistent selection
-        self._updating_selection = True
         selection = self.ports_tree_view.get_selection()
         
         # Initialize port keys tracking if needed
