@@ -116,12 +116,26 @@ process-manager/
 │   ├── __init__.py          # Package initialization with exports
 │   ├── constants.py         # Application constants and CSS styles
 │   ├── main.py              # Application entry point
-│   ├── window.py            # Main window UI
+│   ├── window.py            # Main window UI (ProcessManagerWindow)
+│   ├── dialogs/             # Dialog classes
+│   │   ├── __init__.py      # Re-exports all dialogs
+│   │   ├── process_details.py   # Process details dialog
+│   │   ├── renice.py        # Change priority dialog
+│   │   ├── export.py        # Export process list dialog
+│   │   ├── shortcuts.py     # Keyboard shortcuts window
+│   │   └── termination.py   # Process termination dialog
+│   ├── tabs/                # Tab mixin classes
+│   │   ├── __init__.py      # Re-exports mixins
+│   │   ├── gpu_tab.py       # GPU tab functionality
+│   │   └── ports_tab.py     # Ports tab functionality
 │   ├── process_manager.py   # Process management interface
 │   ├── ps_commands.py       # PS command utilities for process info
 │   ├── system_stats.py      # Memory/CPU/Disk stats
 │   ├── gpu_stats.py         # GPU monitoring (Intel, NVIDIA, AMD)
 │   ├── port_stats.py        # Open ports and network connections
+│   ├── io_stats.py          # Disk I/O statistics
+│   ├── process_history.py   # Process lifecycle tracking
+│   ├── alerts.py            # Process alert rules
 │   ├── settings.py          # Settings management
 │   └── preferences.py       # Preferences dialog
 ├── data/
@@ -139,14 +153,26 @@ process-manager/
 
 The application follows a modular architecture:
 
+**Core Modules:**
 - **constants.py**: Centralized application constants including APP_ID, version, and CSS styles
 - **main.py**: Application class with GTK/Adwaita integration and action handling
 - **window.py**: Main window with process list, selection panel, and system stats bar
 - **process_manager.py**: High-level process operations (list, kill, renice)
 - **ps_commands.py**: Low-level system commands for process information retrieval
+
+**UI Packages:**
+- **dialogs/**: Standalone dialog classes (ProcessDetailsDialog, ReniceDialog, ExportDialog, ShortcutsWindow, TerminationDialog)
+- **tabs/**: Tab mixin classes (GPUTabMixin, PortsTabMixin) providing tab-specific functionality
+
+**Statistics Modules:**
 - **system_stats.py**: System memory, disk, and load average statistics
 - **gpu_stats.py**: GPU detection and monitoring for Intel, NVIDIA, and AMD GPUs
 - **port_stats.py**: Open ports and network connections monitoring using ss command
+- **io_stats.py**: Per-process disk I/O statistics
+
+**Data & Settings:**
+- **process_history.py**: Process lifecycle tracking and resource usage history
+- **alerts.py**: Process monitoring alert rules
 - **settings.py**: Persistent settings management with JSON storage
 - **preferences.py**: User preferences dialog with categorized settings
 
