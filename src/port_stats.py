@@ -85,12 +85,46 @@ class PortStats:
                             pid = int(process_match.group(2))
                     
                     # Parse local address and port
-                    if ':' in local_addr_port:
-                        local_addr, local_port_str = local_addr_port.rsplit(':', 1)
-                        try:
-                            local_port = int(local_port_str)
-                        except ValueError:
+                    # Handle IPv6 addresses with brackets: [::1]:8080
+                    local_addr = None
+                    local_port = None
+                    if local_addr_port.startswith('['):
+                        # IPv6 with brackets: [::1]:8080
+                        bracket_end = local_addr_port.find(']')
+                        if bracket_end > 0 and bracket_end < len(local_addr_port) - 1:
+                            local_addr = local_addr_port[1:bracket_end]
+                            if local_addr_port[bracket_end + 1] == ':':
+                                try:
+                                    local_port = int(local_addr_port[bracket_end + 2:])
+                                except ValueError:
+                                    continue
+                            else:
+                                continue
+                        else:
                             continue
+                    elif ':' in local_addr_port:
+                        # IPv4 or IPv6 without brackets: 127.0.0.1:8080 or ::1:8080
+                        # For IPv6 without brackets, rsplit will work but may be ambiguous
+                        # Try to detect if it's IPv6 (contains ::) and handle accordingly
+                        if '::' in local_addr_port:
+                            # IPv6 without brackets - count colons to find port separator
+                            # Format: ::1:8080 - last colon before port
+                            parts = local_addr_port.rsplit(':', 1)
+                            if len(parts) == 2:
+                                local_addr = parts[0]
+                                try:
+                                    local_port = int(parts[1])
+                                except ValueError:
+                                    continue
+                            else:
+                                continue
+                        else:
+                            # IPv4: 127.0.0.1:8080
+                            local_addr, local_port_str = local_addr_port.rsplit(':', 1)
+                            try:
+                                local_port = int(local_port_str)
+                            except ValueError:
+                                continue
                     else:
                         continue
                     
@@ -98,12 +132,34 @@ class PortStats:
                     remote_addr = None
                     remote_port = None
                     if remote_addr_port and remote_addr_port != '*':
-                        if ':' in remote_addr_port:
-                            remote_addr, remote_port_str = remote_addr_port.rsplit(':', 1)
-                            try:
-                                remote_port = int(remote_port_str) if remote_port_str != '*' else None
-                            except ValueError:
-                                remote_port = None
+                        # Handle IPv6 addresses with brackets: [::1]:8080
+                        if remote_addr_port.startswith('['):
+                            bracket_end = remote_addr_port.find(']')
+                            if bracket_end > 0 and bracket_end < len(remote_addr_port) - 1:
+                                remote_addr = remote_addr_port[1:bracket_end]
+                                if remote_addr_port[bracket_end + 1] == ':':
+                                    try:
+                                        remote_port = int(remote_addr_port[bracket_end + 2:]) if remote_addr_port[bracket_end + 2:] != '*' else None
+                                    except ValueError:
+                                        remote_port = None
+                        elif ':' in remote_addr_port:
+                            # IPv4 or IPv6 without brackets
+                            if '::' in remote_addr_port:
+                                # IPv6 without brackets
+                                parts = remote_addr_port.rsplit(':', 1)
+                                if len(parts) == 2:
+                                    remote_addr = parts[0]
+                                    try:
+                                        remote_port = int(parts[1]) if parts[1] != '*' else None
+                                    except ValueError:
+                                        remote_port = None
+                            else:
+                                # IPv4
+                                remote_addr, remote_port_str = remote_addr_port.rsplit(':', 1)
+                                try:
+                                    remote_port = int(remote_port_str) if remote_port_str != '*' else None
+                                except ValueError:
+                                    remote_port = None
                         else:
                             remote_addr = remote_addr_port
                     
