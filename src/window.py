@@ -1129,6 +1129,13 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         mem_change_threshold = self.settings.get("memory_change_threshold")
         show_kernel_threads = self.settings.get("show_kernel_threads", False)
         
+        # Get User/All filter setting
+        show_all = self.all_user_button.get_active() if hasattr(self, 'all_user_button') else True
+        my_processes = not show_all
+        
+        # Get current user UID for filtering
+        current_uid = os.getuid()
+        
         # Process names to filter out (our own refresh processes)
         filtered_names = {'ps', 'flatpak-spawn'}
         
@@ -1165,6 +1172,12 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             # Skip kernel threads if not showing them
             if not show_kernel_threads and is_kernel_thread(proc):
                 continue
+            
+            # Respect User/All filter
+            if my_processes:
+                proc_uid = proc.get('uid', -1)
+                if proc_uid != current_uid:
+                    continue
             pid = proc['pid']
             current_pids.add(pid)
             cpu_percent = proc['cpu']
@@ -1174,7 +1187,8 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
                 'cpu': cpu_percent,
                 'memory': mem_percent,
                 'name': proc['name'],
-                'ppid': proc.get('ppid', 0)
+                'ppid': proc.get('ppid', 0),
+                'uid': proc.get('uid', -1)
             }
             
             # Check for changes if we have previous data
@@ -1225,6 +1239,12 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             if not show_kernel_threads:
                 prev_ppid = prev_info.get('ppid', 0)
                 if prev_ppid == 2 or pid == 2:
+                    continue
+            
+            # Respect User/All filter
+            if my_processes:
+                prev_uid = prev_info.get('uid', -1)
+                if prev_uid != current_uid:
                     continue
             
             ended_processes.append({
