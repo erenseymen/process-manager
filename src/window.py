@@ -2442,7 +2442,7 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
                 self.search_entry.grab_focus()
             return True  # Event handled
         
-        # Handle Escape key to close search bar
+        # Handle Escape key to close search bar or clear selections
         if keyval == Gdk.KEY_Escape:
             if self.search_bar.get_search_mode():
                 self.search_entry.set_text("")
@@ -2450,6 +2450,10 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
                 # Focus current tab's tree view
                 tree_view, _, _ = self._get_current_tree_view_info()
                 tree_view.grab_focus()
+                return True  # Event handled
+            elif self.selected_pids:
+                # Search bar is closed, clear selections
+                self.on_clear_selection(None)
                 return True  # Event handled
             return False
         

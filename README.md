@@ -193,7 +193,7 @@ Settings are stored in `~/.config/process-manager/settings.json` and include:
 | `Delete` | End selected processes (SIGTERM) |
 | `Shift+Delete` | Force kill selected processes (SIGKILL) |
 | `Space` | Toggle auto-refresh (Play/Pause) |
-| `Escape` | Close search |
+| `Escape` | Close search / Clear selections |
 | `Enter` | Select all filtered processes (in search mode) |
 | `Ctrl+Tab` | Switch between Processes, GPU, and Ports tabs |
 | `F5` | Refresh process list |
