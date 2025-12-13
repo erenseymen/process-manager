@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Tuple
 
 if TYPE_CHECKING:
     from typing import Dict, Union
@@ -28,6 +29,9 @@ class SystemStats:
     
     def __init__(self) -> None:
         self._proc_path = get_host_proc_path()
+        # For CPU usage calculation, store previous reading
+        self._prev_cpu_times: Optional[Tuple[float, float]] = None  # (total, idle)
+        self._prev_cpu_time: float = 0.0
     
     def get_memory_info(self) -> Dict[str, int]:
         """Get memory and swap information.
@@ -166,6 +170,75 @@ class SystemStats:
                 }
         except (OSError, IOError, ValueError, IndexError):
             return {'1min': 0.0, '5min': 0.0, '15min': 0.0}
+    
+    def get_cpu_usage(self) -> Dict[str, float]:
+        """Get CPU usage percentage.
+        
+        Calculates CPU usage based on time spent in different states
+        between two calls. First call returns 0.0.
+        
+        Returns:
+            Dictionary with cpu_usage (0-100), and individual percentages.
+        """
+        result = {
+            'cpu_usage': 0.0,
+            'user': 0.0,
+            'system': 0.0,
+            'idle': 100.0,
+            'iowait': 0.0,
+        }
+        
+        try:
+            with open(self._proc_path / 'stat', 'r') as f:
+                for line in f:
+                    if line.startswith('cpu '):
+                        # cpu  user nice system idle iowait irq softirq steal guest guest_nice
+                        parts = line.split()
+                        if len(parts) >= 5:
+                            user = int(parts[1])
+                            nice = int(parts[2])
+                            system = int(parts[3])
+                            idle = int(parts[4])
+                            iowait = int(parts[5]) if len(parts) > 5 else 0
+                            irq = int(parts[6]) if len(parts) > 6 else 0
+                            softirq = int(parts[7]) if len(parts) > 7 else 0
+                            steal = int(parts[8]) if len(parts) > 8 else 0
+                            
+                            # Total = all time spent
+                            total = user + nice + system + idle + iowait + irq + softirq + steal
+                            idle_total = idle + iowait
+                            
+                            current_time = time.time()
+                            
+                            if self._prev_cpu_times is not None:
+                                prev_total, prev_idle = self._prev_cpu_times
+                                
+                                # Calculate differences
+                                total_diff = total - prev_total
+                                idle_diff = idle_total - prev_idle
+                                
+                                if total_diff > 0:
+                                    # CPU usage = (total - idle) / total * 100
+                                    cpu_usage = ((total_diff - idle_diff) / total_diff) * 100
+                                    result['cpu_usage'] = max(0.0, min(100.0, cpu_usage))
+                                    
+                                    # Calculate individual percentages
+                                    result['user'] = ((user + nice) - self._prev_user_nice) / total_diff * 100 if hasattr(self, '_prev_user_nice') else 0
+                                    result['system'] = (system - self._prev_system) / total_diff * 100 if hasattr(self, '_prev_system') else 0
+                                    result['idle'] = idle_diff / total_diff * 100
+                                    result['iowait'] = (iowait - self._prev_iowait) / total_diff * 100 if hasattr(self, '_prev_iowait') else 0
+                            
+                            # Store current values for next call
+                            self._prev_cpu_times = (total, idle_total)
+                            self._prev_cpu_time = current_time
+                            self._prev_user_nice = user + nice
+                            self._prev_system = system
+                            self._prev_iowait = iowait
+                        break
+        except (OSError, IOError, ValueError, IndexError):
+            pass
+        
+        return result
     
     def get_disk_info(self, path: str | None = None) -> Dict[str, int]:
         """Get disk usage information for user's home directory.

@@ -180,3 +180,43 @@ src/
 - Bookmarks persist across sessions via settings
 - Automatically removes bookmarks for processes that no longer exist
 
+### Phase 5 Features (2025-12-13)
+
+#### Desktop Notifications for Alerts
+- Implemented `send_notification()` in `alerts.py` using `Gio.Notification`
+- Fallback to `notify-send` command when Gio.Application not available
+- Cooldown mechanism (60 seconds) to avoid spamming for same alert
+- Cache cleanup for old alert entries (5 minute expiry)
+
+#### Disk I/O Columns in Process List
+- Added Read/s and Write/s columns to process list (columns 7 and 8)
+- Uses existing `IOStats` module to collect per-process I/O data
+- `format_rate()` method formats bytes/sec in human-readable format
+- Sort functions for I/O rate columns
+- Works in both list and tree view modes
+
+#### System CPU Usage in Stats Bar
+- Added CPU section to stats bar with circular indicator
+- Shows CPU usage percentage from `/proc/stat`
+- Displays load average (1 minute)
+- New `get_cpu_usage()` method in `system_stats.py` calculates CPU percentage from jiffies
+
+#### Process Signals Menu
+- Right-click context menu now has "Send Signal" submenu
+- Signals available: SIGSTOP, SIGCONT, SIGHUP, SIGINT
+- Also added SIGKILL as "Force Kill" option
+- `send_signal_to_selected()` method sends signals with toast feedback
+
+#### Tree View Sort Functions Fix
+- Added `_attach_sort_functions()` helper method
+- Sort functions now reattached when switching between tree/list view modes
+- Called in `_recreate_tree_view()` and `_recreate_list_view()`
+
+#### Alert Rules Management UI
+- New "Alerts" page in Preferences dialog
+- Enable/disable alerts toggle
+- Enable/disable desktop notifications toggle
+- Add/Edit/Delete alert rules with dialog
+- Rules stored as list of dicts: `{id, type, threshold, enabled}`
+- Live toggle for individual rule enable/disable
+

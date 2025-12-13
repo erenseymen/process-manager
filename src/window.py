@@ -388,6 +388,8 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         "user": 4,
         "nice": 5,
         "pid": 6,
+        "io_read": 7,
+        "io_write": 8,
     }
     COLUMN_ID_TO_NAME = {v: k for k, v in COLUMN_NAME_TO_ID.items()}
     
@@ -398,11 +400,12 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         
         if tree_view_mode:
             # Create tree store for tree view
-            self.tree_store = Gtk.TreeStore(str, str, str, str, str, str, int)
+            # Columns: name, cpu, memory, started, user, nice, pid, io_read, io_write
+            self.tree_store = Gtk.TreeStore(str, str, str, str, str, str, int, str, str)
             self.list_store = self.tree_store  # Use tree_store as list_store for compatibility
         else:
-            # Create list store: name, cpu, memory, started, user, nice, pid
-            self.list_store = Gtk.ListStore(str, str, str, str, str, str, int)
+            # Create list store: name, cpu, memory, started, user, nice, pid, io_read, io_write
+            self.list_store = Gtk.ListStore(str, str, str, str, str, str, int, str, str)
         
         # Create tree view
         tree_view = Gtk.TreeView(model=self.list_store)
@@ -437,12 +440,16 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             ("User", 4, 100),
             ("Nice", 5, 60),
             ("PID", 6, 80),
+            ("Read/s", 7, 80),
+            ("Write/s", 8, 80),
         ]
         
         for i, (title, col_id, width) in enumerate(columns):
             renderer = Gtk.CellRendererText()
             if col_id == 0:  # Process name - ellipsize
                 renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            if col_id in (7, 8):  # Right-align I/O columns
+                renderer.set_property("xalign", 1.0)
             
             column = Gtk.TreeViewColumn(title, renderer, text=col_id)
             column.set_resizable(True)
@@ -454,11 +461,7 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             tree_view.append_column(column)
         
         # Custom sorting for numeric columns
-        self.list_store.set_sort_func(1, self.sort_percent, None)  # CPU
-        self.list_store.set_sort_func(2, self.sort_memory, None)   # Memory
-        self.list_store.set_sort_func(3, self.sort_started, None)  # Started
-        self.list_store.set_sort_func(5, self.sort_nice, None)     # Nice
-        self.list_store.set_sort_func(6, self.sort_pid, None)      # PID
+        self._attach_sort_functions(self.list_store)
         
         # Restore saved sort column and order
         saved_column = self.settings.get("sort_column")
@@ -472,6 +475,20 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         
         self.tree_view = tree_view
         return tree_view
+    
+    def _attach_sort_functions(self, store):
+        """Attach custom sort functions to a store.
+        
+        Args:
+            store: Gtk.ListStore or Gtk.TreeStore to attach sort functions to.
+        """
+        store.set_sort_func(1, self.sort_percent, None)     # CPU
+        store.set_sort_func(2, self.sort_memory, None)      # Memory
+        store.set_sort_func(3, self.sort_started, None)     # Started
+        store.set_sort_func(5, self.sort_nice, None)        # Nice
+        store.set_sort_func(6, self.sort_pid, None)         # PID
+        store.set_sort_func(7, self.sort_io_rate, 7)        # Read/s
+        store.set_sort_func(8, self.sort_io_rate, 8)        # Write/s
     
     
     
@@ -537,6 +554,35 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         val1 = model.get_value(iter1, 6)
         val2 = model.get_value(iter2, 6)
         return (val1 > val2) - (val1 < val2)
+    
+    def sort_io_rate(self, model, iter1, iter2, col_id):
+        """Sort by I/O rate value (columns 7 or 8).
+        
+        Parses values like "1.5 MiB", "256 KiB", "0 B" to bytes for comparison.
+        """
+        def parse_rate(s):
+            s = s.strip()
+            if not s or s == '-':
+                return 0
+            try:
+                if s.endswith('/s'):
+                    s = s[:-2].strip()
+                if s.endswith('GiB'):
+                    return float(s[:-3]) * 1024 * 1024 * 1024
+                elif s.endswith('MiB'):
+                    return float(s[:-3]) * 1024 * 1024
+                elif s.endswith('KiB'):
+                    return float(s[:-3]) * 1024
+                elif s.endswith('B'):
+                    return float(s[:-1])
+                return float(s)
+            except (ValueError, AttributeError):
+                return 0
+        
+        val1 = parse_rate(model.get_value(iter1, col_id))
+        val2 = parse_rate(model.get_value(iter2, col_id))
+        # Reversed for descending on first click (highest I/O first)
+        return (val2 > val1) - (val2 < val1)
     
     def create_selection_panel(self):
         """Create the selection panel showing selected processes grouped by name with comparison bars."""
@@ -1227,6 +1273,38 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         stats_box.set_margin_bottom(8)
         stats_box.add_css_class("stats-bar")
         
+        # CPU section
+        cpu_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        
+        self.cpu_indicator = Gtk.DrawingArea()
+        self.cpu_indicator.set_size_request(24, 24)
+        self.cpu_indicator.set_draw_func(self.draw_cpu_indicator)
+        cpu_box.append(self.cpu_indicator)
+        
+        cpu_label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        
+        self.cpu_title = Gtk.Label(label="CPU")
+        self.cpu_title.add_css_class("heading")
+        self.cpu_title.set_halign(Gtk.Align.START)
+        cpu_label_box.append(self.cpu_title)
+        
+        self.cpu_details = Gtk.Label(label="0%")
+        self.cpu_details.add_css_class("dim-label")
+        self.cpu_details.set_halign(Gtk.Align.START)
+        cpu_label_box.append(self.cpu_details)
+        
+        self.cpu_load = Gtk.Label(label="Load: 0.00")
+        self.cpu_load.add_css_class("dim-label")
+        self.cpu_load.set_halign(Gtk.Align.START)
+        cpu_label_box.append(self.cpu_load)
+        
+        cpu_box.append(cpu_label_box)
+        stats_box.append(cpu_box)
+        
+        # Separator
+        sep_cpu = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        stats_box.append(sep_cpu)
+        
         # Memory section
         mem_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         
@@ -1353,6 +1431,10 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         
         return stats_box
     
+    def draw_cpu_indicator(self, area, cr, width, height):
+        """Draw circular CPU usage indicator."""
+        self.draw_circular_indicator(cr, width, height, self.cpu_percent, (0.2, 0.6, 0.8))
+    
     def draw_memory_indicator(self, area, cr, width, height):
         """Draw circular memory usage indicator."""
         self.draw_circular_indicator(cr, width, height, self.mem_percent, (0.8, 0.2, 0.2))
@@ -1393,6 +1475,7 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             cr.stroke()
     
     # Initialize percent values
+    cpu_percent = 0
     mem_percent = 0
     swap_percent = 0
     disk_percent = 0
@@ -1478,24 +1561,46 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         
         return {'tree': tree, 'roots': roots}
     
-    def _populate_tree_store(self, tree_store, parent_iter, tree_data):
-        """Populate tree store with process tree data."""
+    def _populate_tree_store(self, tree_store, parent_iter, tree_data, io_stats_map=None):
+        """Populate tree store with process tree data.
+        
+        Args:
+            tree_store: The Gtk.TreeStore to populate.
+            parent_iter: Parent iterator or None for root level.
+            tree_data: Tree data from _build_process_tree.
+            io_stats_map: Optional dict mapping PID to I/O stats.
+        """
         tree = tree_data['tree']
         roots = tree_data['roots']
+        io_stats_map = io_stats_map or {}
         
         # Sort roots by PID for consistent ordering
         roots.sort()
         
         for root_pid in roots:
-            self._add_tree_node(tree_store, parent_iter, tree, root_pid)
+            self._add_tree_node(tree_store, parent_iter, tree, root_pid, io_stats_map)
     
-    def _add_tree_node(self, tree_store, parent_iter, tree, pid):
-        """Add a tree node and its children recursively."""
+    def _add_tree_node(self, tree_store, parent_iter, tree, pid, io_stats_map=None):
+        """Add a tree node and its children recursively.
+        
+        Args:
+            tree_store: The Gtk.TreeStore to add to.
+            parent_iter: Parent iterator or None.
+            tree: The tree structure dict.
+            pid: Process ID to add.
+            io_stats_map: Optional dict mapping PID to I/O stats.
+        """
         if pid not in tree:
             return
         
+        io_stats_map = io_stats_map or {}
         node = tree[pid]
         proc = node['proc']
+        
+        # Get I/O stats for this process
+        io_data = io_stats_map.get(pid, {})
+        read_rate = io_data.get('read_bytes_per_sec', 0)
+        write_rate = io_data.get('write_bytes_per_sec', 0)
         
         # Add this node
         iter = tree_store.append(parent_iter, [
@@ -1505,13 +1610,15 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             proc['started'],
             proc['user'],
             str(proc['nice']),
-            proc['pid']
+            proc['pid'],
+            self.format_rate(read_rate),
+            self.format_rate(write_rate),
         ])
         
         # Add children (sorted by PID)
         children = sorted(node['children'])
         for child_pid in children:
-            self._add_tree_node(tree_store, iter, tree, child_pid)
+            self._add_tree_node(tree_store, iter, tree, child_pid, io_stats_map)
     
     def _restore_tree_selection(self, tree_store, parent_iter, selection):
         """Restore selection in tree view by PID."""
@@ -1538,9 +1645,12 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         if scrolled:
             scrolled.set_child(None)
         
-        # Create tree store
-        self.tree_store = Gtk.TreeStore(str, str, str, str, str, str, int)
+        # Create tree store with I/O columns
+        self.tree_store = Gtk.TreeStore(str, str, str, str, str, str, int, str, str)
         self.list_store = self.tree_store  # Use tree_store as list_store for compatibility
+        
+        # Reattach sort functions to the new store
+        self._attach_sort_functions(self.tree_store)
         
         # Update tree view to use tree store
         self.tree_view.set_model(self.tree_store)
@@ -1557,8 +1667,11 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         if scrolled:
             scrolled.set_child(None)
         
-        # Create list store
-        self.list_store = Gtk.ListStore(str, str, str, str, str, str, int)
+        # Create list store with I/O columns
+        self.list_store = Gtk.ListStore(str, str, str, str, str, str, int, str, str)
+        
+        # Reattach sort functions to the new store
+        self._attach_sort_functions(self.list_store)
         
         # Update tree view to use list store
         self.tree_view.set_model(self.list_store)
@@ -1650,6 +1763,10 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
                     # Add selected process to the list
                     filtered_processes.append(all_process_map[pid])
         
+        # Get I/O stats for all processes
+        all_pids_list = [p['pid'] for p in filtered_processes]
+        io_stats_map = self.io_stats.get_all_processes_io(all_pids_list)
+        
         # Update list store or tree store based on mode
         self._updating_selection = True
         tree_view_mode = self.settings.get("tree_view_mode", False)
@@ -1663,7 +1780,7 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             self.tree_store.clear()
             # Build tree structure
             tree_data = self._build_process_tree(filtered_processes)
-            self._populate_tree_store(self.tree_store, None, tree_data)
+            self._populate_tree_store(self.tree_store, None, tree_data, io_stats_map)
         else:
             # Use list store for flat view
             if not isinstance(self.list_store, Gtk.ListStore):
@@ -1672,6 +1789,11 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             
             self.list_store.clear()
             for proc in filtered_processes:
+                # Get I/O stats for this process
+                io_data = io_stats_map.get(proc['pid'], {})
+                read_rate = io_data.get('read_bytes_per_sec', 0)
+                write_rate = io_data.get('write_bytes_per_sec', 0)
+                
                 self.list_store.append([
                     proc['name'],
                     f"{proc['cpu']:.1f}%",
@@ -1679,7 +1801,9 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
                     proc['started'],
                     proc['user'],
                     str(proc['nice']),
-                    proc['pid']
+                    proc['pid'],
+                    self.format_rate(read_rate),
+                    self.format_rate(write_rate),
                 ])
         
         # Restore selection by PID from persistent selection
@@ -1721,6 +1845,18 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             return f"{bytes_val / 1024:.1f} KiB"
         return f"{bytes_val} B"
     
+    def format_rate(self, bytes_per_sec):
+        """Format I/O rate in human-readable format with /s suffix."""
+        if bytes_per_sec <= 0:
+            return "-"
+        if bytes_per_sec >= 1024 ** 3:
+            return f"{bytes_per_sec / (1024 ** 3):.1f} GiB/s"
+        elif bytes_per_sec >= 1024 ** 2:
+            return f"{bytes_per_sec / (1024 ** 2):.1f} MiB/s"
+        elif bytes_per_sec >= 1024:
+            return f"{bytes_per_sec / 1024:.1f} KiB/s"
+        return f"{bytes_per_sec:.0f} B/s"
+    
     def format_bytes(self, bytes_val):
         """Format bytes in human-readable format (same as format_memory but can handle float rates)."""
         if bytes_val >= 1024 ** 3:
@@ -1734,10 +1870,19 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         return f"{bytes_val:.2f} B"
     
     def update_system_stats(self):
-        """Update system memory, swap, disk, and GPU stats."""
-        stats = self.system_stats.get_memory_info()
+        """Update system CPU, memory, swap, disk, and GPU stats."""
+        # CPU
+        cpu_stats = self.system_stats.get_cpu_usage()
+        self.cpu_percent = cpu_stats.get('cpu_usage', 0)
+        self.cpu_details.set_text(f"{self.cpu_percent:.1f}%")
+        
+        # Load average
+        load_avg = self.system_stats.get_load_average()
+        self.cpu_load.set_text(f"Load: {load_avg['1min']:.2f}")
+        self.cpu_indicator.queue_draw()
         
         # Memory
+        stats = self.system_stats.get_memory_info()
         mem_used = stats['mem_used']
         mem_total = stats['mem_total']
         mem_cache = stats['mem_cache']
@@ -2148,11 +2293,48 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         self.add_action(priority_action)
         menu.append("Change Priority...", "win.context-priority")
         
+        # Signals submenu
+        signals_menu = Gio.Menu()
+        
+        # Stop action (SIGSTOP)
+        stop_action = Gio.SimpleAction.new("context-stop", None)
+        stop_action.connect("activate", lambda a, p: self.send_signal_to_selected(signal.SIGSTOP))
+        self.add_action(stop_action)
+        signals_menu.append("Stop (SIGSTOP)", "win.context-stop")
+        
+        # Continue action (SIGCONT)
+        cont_action = Gio.SimpleAction.new("context-cont", None)
+        cont_action.connect("activate", lambda a, p: self.send_signal_to_selected(signal.SIGCONT))
+        self.add_action(cont_action)
+        signals_menu.append("Continue (SIGCONT)", "win.context-cont")
+        
+        # Hangup action (SIGHUP)
+        hup_action = Gio.SimpleAction.new("context-hup", None)
+        hup_action.connect("activate", lambda a, p: self.send_signal_to_selected(signal.SIGHUP))
+        self.add_action(hup_action)
+        signals_menu.append("Hangup (SIGHUP)", "win.context-hup")
+        
+        # Interrupt action (SIGINT)
+        int_action = Gio.SimpleAction.new("context-int", None)
+        int_action.connect("activate", lambda a, p: self.send_signal_to_selected(signal.SIGINT))
+        self.add_action(int_action)
+        signals_menu.append("Interrupt (SIGINT)", "win.context-int")
+        
+        menu.append_submenu("Send Signal", signals_menu)
+        
+        menu.append("_", None)  # Separator
+        
         # End Process action
         end_action = Gio.SimpleAction.new("context-kill", None)
         end_action.connect("activate", lambda a, p: self.on_kill_process(None))
         self.add_action(end_action)
-        menu.append("End Process", "win.context-kill")
+        menu.append("End Process (SIGTERM)", "win.context-kill")
+        
+        # Force Kill action
+        force_kill_action = Gio.SimpleAction.new("context-force-kill", None)
+        force_kill_action.connect("activate", lambda a, p: self.force_kill_selected_processes())
+        self.add_action(force_kill_action)
+        menu.append("Force Kill (SIGKILL)", "win.context-force-kill")
         
         popover.set_menu_model(menu)
         rect = Gdk.Rectangle()
@@ -2162,6 +2344,44 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         rect.height = 1
         popover.set_pointing_to(rect)
         popover.popup()
+    
+    def send_signal_to_selected(self, sig):
+        """Send a specific signal to all selected processes.
+        
+        Args:
+            sig: The signal to send (e.g., signal.SIGSTOP).
+        """
+        if not self.selected_pids:
+            return
+        
+        success_count = 0
+        error_count = 0
+        
+        for pid in list(self.selected_pids.keys()):
+            try:
+                self.process_manager.kill_process(pid, sig)
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+        
+        # Show toast with result
+        signal_name = {
+            signal.SIGSTOP: "SIGSTOP",
+            signal.SIGCONT: "SIGCONT",
+            signal.SIGHUP: "SIGHUP",
+            signal.SIGINT: "SIGINT",
+        }.get(sig, str(sig))
+        
+        if error_count == 0:
+            message = f"Sent {signal_name} to {success_count} process(es)"
+        else:
+            message = f"Sent {signal_name} to {success_count} process(es), {error_count} failed"
+        
+        toast = Adw.Toast(title=message, timeout=3)
+        self.toast_overlay.add_toast(toast)
+        
+        # Refresh the process list
+        GLib.timeout_add(500, self._refresh_current_tab)
     
     def on_close_request(self, window):
         """Handle window close."""
