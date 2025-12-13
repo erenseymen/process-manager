@@ -723,10 +723,10 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
         
         # Window setup
         self.set_title("Process Manager")
-        self.set_default_size(
-            self.settings.get("window_width"),
-            self.settings.get("window_height")
-        )
+        # Restore window size from settings
+        width = self.settings.get("window_width", 900)
+        height = self.settings.get("window_height", 600)
+        self.set_default_size(width, height)
         
         # Build UI
         self.build_ui()
