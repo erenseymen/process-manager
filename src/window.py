@@ -314,6 +314,9 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         if tab_name == 'gpu':
             self.gpu_selection_title = title_label
             self.gpu_selection_list = selection_list
+        elif tab_name == 'ports':
+            self.ports_selection_title = title_label
+            self.ports_selection_list = selection_list
         
         return panel_box
     
@@ -862,6 +865,10 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             panel = self.gpu_selection_panel
             title_label = self.gpu_selection_title
             selection_list = self.gpu_selection_list
+        elif self.current_tab == 'ports':
+            panel = self.ports_selection_panel
+            title_label = self.ports_selection_title
+            selection_list = self.ports_selection_list
         else:
             panel = self.selection_panel
             title_label = self.selection_title
@@ -873,9 +880,17 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         # Also update the other tab's panel visibility
         if self.current_tab == 'gpu':
             self.selection_panel.set_visible(False)
+            if hasattr(self, 'ports_selection_panel'):
+                self.ports_selection_panel.set_visible(False)
+        elif self.current_tab == 'ports':
+            self.selection_panel.set_visible(False)
+            if hasattr(self, 'gpu_selection_panel'):
+                self.gpu_selection_panel.set_visible(False)
         else:
             if hasattr(self, 'gpu_selection_panel'):
                 self.gpu_selection_panel.set_visible(False)
+            if hasattr(self, 'ports_selection_panel'):
+                self.ports_selection_panel.set_visible(False)
         
         if count == 0:
             return
