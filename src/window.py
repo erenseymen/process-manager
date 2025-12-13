@@ -744,9 +744,13 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     
     def build_ui(self):
         """Build the user interface."""
+        # Toast overlay for error messages
+        self.toast_overlay = Adw.ToastOverlay()
+        self.set_content(self.toast_overlay)
+        
         # Main box
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.set_content(main_box)
+        self.toast_overlay.set_child(main_box)
         
         # Header bar
         header = Adw.HeaderBar()
@@ -2768,8 +2772,7 @@ class ProcessManagerWindow(Adw.ApplicationWindow):
     def show_error(self, message):
         """Show error toast."""
         toast = Adw.Toast(title=message, timeout=3)
-        # Need toast overlay - simplified for now
-        print(f"Error: {message}")
+        self.toast_overlay.add_toast(toast)
     
     def on_right_click(self, gesture, n_press, x, y):
         """Handle right-click context menu for processes tab."""
