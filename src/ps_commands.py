@@ -178,10 +178,18 @@ def get_process_details_via_ps(pid: int) -> Dict[str, Any]:
         # Get environment variables using cat
         cmd = ['cat', f'/proc/{pid}/environ']
         output = run_host_command(cmd)
-        environ = output.replace('\x00', '\n')
-        details['environ'] = environ[:2000] if environ else 'N/A'
-    except (OSError, subprocess.SubprocessError):
-        details['environ'] = 'N/A'
+        if output:
+            environ = output.replace('\x00', '\n')
+            details['environ'] = environ[:2000] if environ else 'N/A'
+        else:
+            details['environ'] = 'N/A (permission denied or process not accessible)'
+    except (OSError, subprocess.SubprocessError) as e:
+        # Check if it's a permission error
+        error_str = str(e).lower()
+        if 'permission denied' in error_str or 'access denied' in error_str:
+            details['environ'] = 'N/A (permission denied - run with appropriate privileges)'
+        else:
+            details['environ'] = f'N/A (error: {str(e)})'
     
     try:
         # Get file descriptor count using ls
