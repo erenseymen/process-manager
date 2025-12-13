@@ -1135,11 +1135,15 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         # Find processes with significant changes
         changed_cpu = []
         changed_mem = []
+        started_processes = []
+        ended_processes = []
         
         # Build current stats and detect changes
         current_stats = {}
+        current_pids = set()
         for proc in processes:
             pid = proc['pid']
+            current_pids.add(pid)
             cpu_percent = proc['cpu']
             mem_percent = (proc['memory'] / mem_total * 100) if mem_total > 0 else 0
             
@@ -1174,6 +1178,26 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
                         'change': mem_change,
                         'type': 'mem'
                     })
+            else:
+                # New process started
+                started_processes.append({
+                    'pid': pid,
+                    'name': proc['name'],
+                    'cpu': cpu_percent,
+                    'memory': mem_percent,
+                    'type': 'started'
+                })
+        
+        # Detect ended processes (in previous stats but not in current)
+        prev_pids = set(self._prev_process_stats.keys())
+        ended_pids = prev_pids - current_pids
+        for pid in ended_pids:
+            prev_info = self._prev_process_stats[pid]
+            ended_processes.append({
+                'pid': pid,
+                'name': prev_info['name'],
+                'type': 'ended'
+            })
         
         # Update previous stats cache
         self._prev_process_stats = current_stats
@@ -1190,21 +1214,34 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
             self.high_usage_flow.remove(child)
         
         # Show/hide panel
-        has_changes = len(changed_cpu) > 0 or len(changed_mem) > 0
+        has_changes = (len(changed_cpu) > 0 or len(changed_mem) > 0 or 
+                      len(started_processes) > 0 or len(ended_processes) > 0)
         self.high_usage_panel.set_visible(has_changes)
         
         if not has_changes:
             return
         
-        # Add CPU change processes
-        for proc in changed_cpu[:5]:  # Limit to top 5
-            chip = self.create_high_usage_chip(proc, 'cpu')
+        # Add started processes (limit to top 5)
+        for proc in started_processes[:5]:
+            chip = self.create_high_usage_chip(proc, 'started')
             self.high_usage_flow.append(chip)
+        
+        # Add ended processes (limit to top 5)
+        for proc in ended_processes[:5]:
+            chip = self.create_high_usage_chip(proc, 'ended')
+            self.high_usage_flow.append(chip)
+        
+        # Add CPU change processes (avoid duplicates with started/ended)
+        started_ended_pids = {p['pid'] for p in started_processes[:5]} | {p['pid'] for p in ended_processes[:5]}
+        for proc in changed_cpu[:5]:  # Limit to top 5
+            if proc['pid'] not in started_ended_pids:
+                chip = self.create_high_usage_chip(proc, 'cpu')
+                self.high_usage_flow.append(chip)
         
         # Add memory change processes (avoid duplicates)
         changed_cpu_pids = {p['pid'] for p in changed_cpu[:5]}
         for proc in changed_mem[:5]:  # Limit to top 5
-            if proc['pid'] not in changed_cpu_pids:
+            if proc['pid'] not in started_ended_pids and proc['pid'] not in changed_cpu_pids:
                 chip = self.create_high_usage_chip(proc, 'mem')
                 self.high_usage_flow.append(chip)
     
@@ -1216,15 +1253,22 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         change = proc.get('change', 0)
         
         # Add class based on change direction and type
-        if change > 0:
+        if usage_type == 'started':
             chip_box.add_css_class("change-up")
-        else:
+            chip_box.add_css_class("process-started")
+        elif usage_type == 'ended':
             chip_box.add_css_class("change-down")
-        
-        if usage_type == 'cpu':
-            chip_box.add_css_class("high-cpu")
+            chip_box.add_css_class("process-ended")
         else:
-            chip_box.add_css_class("high-mem")
+            if change > 0:
+                chip_box.add_css_class("change-up")
+            else:
+                chip_box.add_css_class("change-down")
+            
+            if usage_type == 'cpu':
+                chip_box.add_css_class("high-cpu")
+            else:
+                chip_box.add_css_class("high-mem")
         
         # Process name
         name_label = Gtk.Label(label=proc['name'])
@@ -1233,21 +1277,37 @@ class ProcessManagerWindow(GPUTabMixin, PortsTabMixin, Adw.ApplicationWindow):
         name_label.add_css_class("chip-name")
         chip_box.append(name_label)
         
-        # Change indicator with arrow
-        arrow = "↑" if change > 0 else "↓"
-        if usage_type == 'cpu':
-            value_text = f"CPU {arrow}{abs(change):.1f}%"
+        # Change indicator with arrow or status text
+        if usage_type == 'started':
+            value_text = "Started"
+            value_label = Gtk.Label(label=value_text)
+            value_label.add_css_class("chip-value")
+            chip_box.append(value_label)
+            # Make clickable to select the process
+            gesture = Gtk.GestureClick()
+            gesture.connect("pressed", lambda g, n, x, y: self.select_process_by_pid(proc['pid']))
+            chip_box.add_controller(gesture)
+        elif usage_type == 'ended':
+            value_text = "Ended"
+            value_label = Gtk.Label(label=value_text)
+            value_label.add_css_class("chip-value")
+            chip_box.append(value_label)
+            # Ended processes can't be selected, so no click handler
         else:
-            value_text = f"Mem {arrow}{abs(change):.1f}%"
-        
-        value_label = Gtk.Label(label=value_text)
-        value_label.add_css_class("chip-value")
-        chip_box.append(value_label)
-        
-        # Make clickable to select the process
-        gesture = Gtk.GestureClick()
-        gesture.connect("pressed", lambda g, n, x, y: self.select_process_by_pid(proc['pid']))
-        chip_box.add_controller(gesture)
+            arrow = "↑" if change > 0 else "↓"
+            if usage_type == 'cpu':
+                value_text = f"CPU {arrow}{abs(change):.1f}%"
+            else:
+                value_text = f"Mem {arrow}{abs(change):.1f}%"
+            
+            value_label = Gtk.Label(label=value_text)
+            value_label.add_css_class("chip-value")
+            chip_box.append(value_label)
+            
+            # Make clickable to select the process
+            gesture = Gtk.GestureClick()
+            gesture.connect("pressed", lambda g, n, x, y: self.select_process_by_pid(proc['pid']))
+            chip_box.add_controller(gesture)
         
         return chip_box
     
