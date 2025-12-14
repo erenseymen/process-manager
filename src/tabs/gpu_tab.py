@@ -26,6 +26,25 @@ class GPUTabMixin:
     - _handle_right_click: method
     """
     
+    # Map column names to column IDs for GPU sort persistence
+    GPU_COLUMN_NAME_TO_ID = {
+        "name": 0,
+        "cpu": 1,
+        "memory": 2,
+        "pid": 3,
+        "started": 4,
+        # GPU-specific columns start at 5, but are dynamic based on available GPUs
+    }
+    GPU_COLUMN_ID_TO_NAME = {v: k for k, v in GPU_COLUMN_NAME_TO_ID.items()}
+    
+    def on_gpu_sort_column_changed(self, model):
+        """Handle GPU sort column change - save to settings."""
+        sort_col_id, sort_order = model.get_sort_column_id()
+        if sort_col_id is not None and sort_col_id >= 0:
+            col_name = self.GPU_COLUMN_ID_TO_NAME.get(sort_col_id, f"gpu_col_{sort_col_id}")
+            self.settings.set("gpu_sort_column", col_name)
+            self.settings.set("gpu_sort_descending", sort_order == Gtk.SortType.DESCENDING)
+    
     def create_gpu_tab(self):
         """Create the GPU tab content."""
         tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -153,6 +172,27 @@ class GPUTabMixin:
                 'dec': col_idx + 2
             }
             col_idx += 3
+        
+        # Attach sort function for Started column
+        self.gpu_list_store.set_sort_func(4, self.sort_gpu_started, None)
+        
+        # Restore saved sort column and order
+        saved_column = self.settings.get("gpu_sort_column")
+        saved_descending = self.settings.get("gpu_sort_descending")
+        if saved_column:
+            # Try to get column ID from name, handling dynamic GPU columns
+            if saved_column.startswith("gpu_col_"):
+                try:
+                    sort_col_id = int(saved_column.split("_")[-1])
+                except ValueError:
+                    sort_col_id = 0
+            else:
+                sort_col_id = self.GPU_COLUMN_NAME_TO_ID.get(saved_column, 0)
+            sort_order = Gtk.SortType.DESCENDING if saved_descending else Gtk.SortType.ASCENDING
+            self.gpu_list_store.set_sort_column_id(sort_col_id, sort_order)
+        
+        # Connect to sort changes to save them
+        self.gpu_list_store.connect("sort-column-changed", self.on_gpu_sort_column_changed)
         
         self.gpu_tree_view = tree_view
         return tree_view
@@ -385,6 +425,9 @@ class GPUTabMixin:
         # Restore sort state after model swap
         if sort_column_id is not None and sort_column_id >= 0:
             self.gpu_list_store.set_sort_column_id(sort_column_id, sort_order)
+        
+        # Connect sort change handler to new store
+        self.gpu_list_store.connect("sort-column-changed", self.on_gpu_sort_column_changed)
         
         # Restore selection by PID from persistent selection
         selection = self.gpu_tree_view.get_selection()
