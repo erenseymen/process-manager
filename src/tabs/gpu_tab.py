@@ -35,14 +35,14 @@ class GPUTabMixin:
         tab_box.append(self.gpu_selection_panel)
         
         # GPU process list
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_hexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.gpu_scrolled = Gtk.ScrolledWindow()
+        self.gpu_scrolled.set_vexpand(True)
+        self.gpu_scrolled.set_hexpand(True)
+        self.gpu_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         
         self.gpu_process_view = self.create_gpu_process_view()
-        scrolled.set_child(self.gpu_process_view)
-        tab_box.append(scrolled)
+        self.gpu_scrolled.set_child(self.gpu_process_view)
+        tab_box.append(self.gpu_scrolled)
         
         return tab_box
     
@@ -285,6 +285,10 @@ class GPUTabMixin:
                         'gpu_info': gpu_info
                     })
         
+        # Save scroll position before clearing
+        vadj = self.gpu_scrolled.get_vadjustment()
+        scroll_value = vadj.get_value()
+        
         # Update GPU list store
         self._updating_selection = True
         self.gpu_list_store.clear()
@@ -339,6 +343,13 @@ class GPUTabMixin:
                     selection.select_path(Gtk.TreePath.new_from_indices([i]))
         
         self._updating_selection = False
+        
+        # Restore scroll position using one-shot handler on adjustment change
+        def restore_scroll_once(adj):
+            adj.set_value(scroll_value)
+            adj.disconnect_by_func(restore_scroll_once)
+        
+        vadj.connect("changed", restore_scroll_once)
         
         # Update the selection panel
         self.update_selection_panel()

@@ -249,14 +249,14 @@ class ProcessManagerWindow(
         tab_box.append(self.selection_panel)
         
         # Process list
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_hexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.process_scrolled = Gtk.ScrolledWindow()
+        self.process_scrolled.set_vexpand(True)
+        self.process_scrolled.set_hexpand(True)
+        self.process_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         
         self.process_view = self.create_process_view()
-        scrolled.set_child(self.process_view)
-        tab_box.append(scrolled)
+        self.process_scrolled.set_child(self.process_view)
+        tab_box.append(self.process_scrolled)
         
         # High usage processes panel (above stats bar)
         self.high_usage_panel = self.create_high_usage_panel()
@@ -861,6 +861,10 @@ class ProcessManagerWindow(
         elif not tree_view_mode and current_is_tree:
             self._recreate_list_view()
         
+        # Save scroll position before clearing
+        vadj = self.process_scrolled.get_vadjustment()
+        scroll_value = vadj.get_value()
+        
         # Update the store
         self._updating_selection = True
         self.list_store.clear()
@@ -902,6 +906,14 @@ class ProcessManagerWindow(
                         selection.select_path(Gtk.TreePath.new_from_indices([i]))
         
         self._updating_selection = False
+        
+        # Restore scroll position using one-shot handler on adjustment change
+        # This fires after GTK has calculated the new adjustment values
+        def restore_scroll_once(adj):
+            adj.set_value(scroll_value)
+            adj.disconnect_by_func(restore_scroll_once)
+        
+        vadj.connect("changed", restore_scroll_once)
         
         # Update panels
         self.update_selection_panel()

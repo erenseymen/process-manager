@@ -54,14 +54,14 @@ class PortsTabMixin:
         tab_box.append(self.ports_selection_panel)
         
         # Ports list
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_hexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.ports_scrolled = Gtk.ScrolledWindow()
+        self.ports_scrolled.set_vexpand(True)
+        self.ports_scrolled.set_hexpand(True)
+        self.ports_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         
         self.ports_view = self.create_ports_view()
-        scrolled.set_child(self.ports_view)
-        tab_box.append(scrolled)
+        self.ports_scrolled.set_child(self.ports_view)
+        tab_box.append(self.ports_scrolled)
         
         return tab_box
     
@@ -364,6 +364,10 @@ class PortsTabMixin:
         needs_tree_store = group_processes_mode and not isinstance(self.ports_list_store, Gtk.TreeStore)
         needs_list_store = not group_processes_mode and isinstance(self.ports_list_store, Gtk.TreeStore)
         
+        # Save scroll position before clearing
+        vadj = self.ports_scrolled.get_vadjustment()
+        scroll_value = vadj.get_value()
+        
         # Set flag BEFORE clearing to prevent selection-changed callback from running
         self._updating_selection = True
         
@@ -596,6 +600,13 @@ class PortsTabMixin:
                             keys_already_selected.add(port_key)
         
         self._updating_selection = False
+        
+        # Restore scroll position using one-shot handler on adjustment change
+        def restore_scroll_once(adj):
+            adj.set_value(scroll_value)
+            adj.disconnect_by_func(restore_scroll_once)
+        
+        vadj.connect("changed", restore_scroll_once)
         
         # Sync selected_pids with actual ports selection
         # Get PIDs that are actually selected in the ports tree
