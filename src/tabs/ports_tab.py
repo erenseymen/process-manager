@@ -364,30 +364,25 @@ class PortsTabMixin:
         needs_tree_store = group_processes_mode and not isinstance(self.ports_list_store, Gtk.TreeStore)
         needs_list_store = not group_processes_mode and isinstance(self.ports_list_store, Gtk.TreeStore)
         
-        # Save scroll position before clearing
+        # Save scroll position as ratio before updating
         vadj = self.ports_scrolled.get_vadjustment()
         scroll_value = vadj.get_value()
+        old_upper = vadj.get_upper()
+        old_page_size = vadj.get_page_size()
+        # Calculate scroll ratio (0.0 = top, 1.0 = bottom)
+        old_max_scroll = old_upper - old_page_size
+        scroll_ratio = scroll_value / old_max_scroll if old_max_scroll > 0 else 0.0
         
-        # Set flag BEFORE clearing to prevent selection-changed callback from running
+        # Set flag BEFORE updating to prevent selection-changed callback from running
         self._updating_selection = True
         
-        if needs_tree_store:
-            # Switch from ListStore to TreeStore
-            self.ports_list_store = Gtk.TreeStore(str, int, str, str, int, str, int, str, str, str, str, str)
-            self.ports_tree_view.set_model(self.ports_list_store)
-            self.ports_tree_view.set_show_expanders(True)
-            self.ports_tree_view.set_level_indentation(20)
-        elif needs_list_store:
-            # Switch from TreeStore to ListStore
-            self.ports_list_store = Gtk.ListStore(str, int, str, str, int, str, int, str, str, str, str, str)
-            self.ports_tree_view.set_model(self.ports_list_store)
-            self.ports_tree_view.set_show_expanders(False)
-            self.ports_tree_view.set_level_indentation(0)
+        # Double buffering: Create new model, populate it, then swap
+        if group_processes_mode:
+            new_store = Gtk.TreeStore(str, int, str, str, int, str, int, str, str, str, str, str)
+        else:
+            new_store = Gtk.ListStore(str, int, str, str, int, str, int, str, str, str, str, str)
         
-        # Update ports list store
-        self.ports_list_store.clear()
-        
-        if group_processes_mode and isinstance(self.ports_list_store, Gtk.TreeStore):
+        if group_processes_mode:
             # Group ports by PID with TreeStore (expandable rows)
             grouped_by_pid = {}
             for port in ports:
@@ -461,7 +456,7 @@ class PortsTabMixin:
                 remote_addr_str = f"{num_ports} connection{'s' if num_ports > 1 else ''}"
                 
                 # Create parent row
-                parent_iter = self.ports_list_store.append(None, [
+                parent_iter = new_store.append(None, [
                     group_data['name'],
                     pid,
                     protocol_str,
@@ -494,7 +489,7 @@ class PortsTabMixin:
                     port_bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
                     
                     # Add child row
-                    self.ports_list_store.append(parent_iter, [
+                    new_store.append(parent_iter, [
                         port.get('name') or 'N/A',
                         pid,  # Same PID as parent
                         port.get('protocol', 'N/A'),
@@ -514,7 +509,6 @@ class PortsTabMixin:
                 # Format remote address/port
                 remote_addr = port.get('remote_address') or '-'
                 remote_port = port.get('remote_port')
-                remote_port_str = str(remote_port) if remote_port is not None else '-'
                 
                 # Format traffic statistics
                 bytes_sent = port.get('bytes_sent', 0)
@@ -527,7 +521,7 @@ class PortsTabMixin:
                 bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
                 bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
                 
-                self.ports_list_store.append([
+                new_store.append([
                     port.get('name') or 'N/A',
                     port.get('pid') or 0,
                     port.get('protocol', 'N/A'),
@@ -541,6 +535,35 @@ class PortsTabMixin:
                     bytes_sent_rate_str,
                     bytes_recv_rate_str
                 ])
+        
+        # Attach sort functions to new store
+        new_store.set_sort_func(1, self.sort_pid, None)
+        new_store.set_sort_func(4, self.sort_local_port, None)
+        new_store.set_sort_func(6, self.sort_remote_port, None)
+        new_store.set_sort_func(8, self.sort_bytes, 8)
+        new_store.set_sort_func(9, self.sort_bytes, 9)
+        new_store.set_sort_func(10, self.sort_bytes_rate, 10)
+        new_store.set_sort_func(11, self.sort_bytes_rate, 11)
+        
+        # Restore sort column from old store if it exists
+        try:
+            sort_col_id, sort_order = self.ports_list_store.get_sort_column_id()
+            if sort_col_id is not None and sort_col_id >= 0:
+                new_store.set_sort_column_id(sort_col_id, sort_order)
+        except:
+            new_store.set_sort_column_id(4, Gtk.SortType.ASCENDING)
+        
+        # Atomic swap: Set new model to tree view
+        self.ports_list_store = new_store
+        self.ports_tree_view.set_model(self.ports_list_store)
+        
+        # Update expanders based on mode
+        if group_processes_mode:
+            self.ports_tree_view.set_show_expanders(True)
+            self.ports_tree_view.set_level_indentation(20)
+        else:
+            self.ports_tree_view.set_show_expanders(False)
+            self.ports_tree_view.set_level_indentation(0)
         
         # Restore selection by unique port keys from persistent selection
         selection = self.ports_tree_view.get_selection()
@@ -601,12 +624,17 @@ class PortsTabMixin:
         
         self._updating_selection = False
         
-        # Restore scroll position using one-shot handler on adjustment change
-        def restore_scroll_once(adj):
-            adj.set_value(scroll_value)
-            adj.disconnect_by_func(restore_scroll_once)
+        # Set up one-shot handler to restore scroll immediately when adjustment changes
+        def restore_scroll_on_change(adj):
+            new_upper = adj.get_upper()
+            new_page_size = adj.get_page_size()
+            new_max_scroll = new_upper - new_page_size
+            if new_max_scroll > 0:
+                new_scroll_value = scroll_ratio * new_max_scroll
+                adj.set_value(new_scroll_value)
+            adj.disconnect_by_func(restore_scroll_on_change)
         
-        vadj.connect("changed", restore_scroll_once)
+        vadj.connect("changed", restore_scroll_on_change)
         
         # Sync selected_pids with actual ports selection
         # Get PIDs that are actually selected in the ports tree

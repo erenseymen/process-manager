@@ -861,20 +861,27 @@ class ProcessManagerWindow(
         elif not tree_view_mode and current_is_tree:
             self._recreate_list_view()
         
-        # Save scroll position before clearing
+        # Save scroll position as ratio before updating
         vadj = self.process_scrolled.get_vadjustment()
         scroll_value = vadj.get_value()
+        old_upper = vadj.get_upper()
+        old_page_size = vadj.get_page_size()
+        # Calculate scroll ratio (0.0 = top, 1.0 = bottom)
+        old_max_scroll = old_upper - old_page_size
+        scroll_ratio = scroll_value / old_max_scroll if old_max_scroll > 0 else 0.0
         
-        # Update the store
+        # Double buffering: Create new model, populate it, then swap
+        # This prevents scroll-to-top flash caused by clear()
         self._updating_selection = True
-        self.list_store.clear()
         
         if tree_view_mode:
-            # Build tree and populate
+            new_store = Gtk.TreeStore(str, str, str, str, str, str, int, str, str)
+            # Build tree and populate new store
             tree_data = self._build_process_tree(filtered_processes)
-            self._populate_tree_store(self.list_store, None, tree_data, io_stats_map)
+            self._populate_tree_store(new_store, None, tree_data, io_stats_map)
         else:
-            # Flat list
+            new_store = Gtk.ListStore(str, str, str, str, str, str, int, str, str)
+            # Populate new store
             for proc in filtered_processes:
                 pid = proc['pid']
                 io_read = "0 B"
@@ -883,7 +890,7 @@ class ProcessManagerWindow(
                     io_read = self.format_rate(io_stats_map[pid].get('read_bytes_per_sec', 0))
                     io_write = self.format_rate(io_stats_map[pid].get('write_bytes_per_sec', 0))
                 
-                self.list_store.append([
+                new_store.append([
                     proc['name'],
                     f"{proc['cpu']:.1f}%",
                     self.format_memory(proc['memory']),
@@ -894,6 +901,33 @@ class ProcessManagerWindow(
                     io_read,
                     io_write,
                 ])
+        
+        # Attach sort functions to new store
+        self._attach_sort_functions(new_store)
+        
+        # Restore sort column from old store
+        sort_col_id, sort_order = self.list_store.get_sort_column_id()
+        if sort_col_id is not None and sort_col_id >= 0:
+            new_store.set_sort_column_id(sort_col_id, sort_order)
+        
+        # Connect sort change handler
+        new_store.connect("sort-column-changed", self.on_sort_column_changed)
+        
+        # Set up one-shot handler to restore scroll immediately when adjustment changes
+        def restore_scroll_on_change(adj):
+            new_upper = adj.get_upper()
+            new_page_size = adj.get_page_size()
+            new_max_scroll = new_upper - new_page_size
+            if new_max_scroll > 0:
+                new_scroll_value = scroll_ratio * new_max_scroll
+                adj.set_value(new_scroll_value)
+            adj.disconnect_by_func(restore_scroll_on_change)
+        
+        vadj.connect("changed", restore_scroll_on_change)
+        
+        # Atomic swap: Set new model to tree view
+        self.list_store = new_store
+        self.tree_view.set_model(self.list_store)
         
         # Restore selection
         selection = self.tree_view.get_selection()
@@ -906,14 +940,6 @@ class ProcessManagerWindow(
                         selection.select_path(Gtk.TreePath.new_from_indices([i]))
         
         self._updating_selection = False
-        
-        # Restore scroll position using one-shot handler on adjustment change
-        # This fires after GTK has calculated the new adjustment values
-        def restore_scroll_once(adj):
-            adj.set_value(scroll_value)
-            adj.disconnect_by_func(restore_scroll_once)
-        
-        vadj.connect("changed", restore_scroll_once)
         
         # Update panels
         self.update_selection_panel()

@@ -285,13 +285,24 @@ class GPUTabMixin:
                         'gpu_info': gpu_info
                     })
         
-        # Save scroll position before clearing
+        # Save scroll position as ratio before updating
         vadj = self.gpu_scrolled.get_vadjustment()
         scroll_value = vadj.get_value()
+        old_upper = vadj.get_upper()
+        old_page_size = vadj.get_page_size()
+        # Calculate scroll ratio (0.0 = top, 1.0 = bottom)
+        old_max_scroll = old_upper - old_page_size
+        scroll_ratio = scroll_value / old_max_scroll if old_max_scroll > 0 else 0.0
         
-        # Update GPU list store
+        # Double buffering: Create new model, populate it, then swap
         self._updating_selection = True
-        self.gpu_list_store.clear()
+        
+        # Calculate total columns needed
+        total_cols = 4 + len(self.gpu_column_mapping) * 3
+        col_types = [str] * total_cols
+        col_types[3] = int  # PID is int
+        new_store = Gtk.ListStore(*col_types)
+        
         for proc in combined_processes:
             row_data = [
                 proc['name'],
@@ -316,7 +327,6 @@ class GPUTabMixin:
             
             if 'intel' in self.gpu_stats.gpu_types:
                 if gpu_type == 'intel':
-                    # Show Intel GPU processes even with 0% usage so they're visible
                     row_data.append(f"{gpu_info.get('gpu_usage', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('encoding', 0):.1f}%")
                     row_data.append(f"{gpu_info.get('decoding', 0):.1f}%")
@@ -333,7 +343,23 @@ class GPUTabMixin:
                 else:
                     row_data.extend(["", "", ""])
             
-            self.gpu_list_store.append(row_data)
+            new_store.append(row_data)
+        
+        # Set up one-shot handler to restore scroll immediately when adjustment changes
+        def restore_scroll_on_change(adj):
+            new_upper = adj.get_upper()
+            new_page_size = adj.get_page_size()
+            new_max_scroll = new_upper - new_page_size
+            if new_max_scroll > 0:
+                new_scroll_value = scroll_ratio * new_max_scroll
+                adj.set_value(new_scroll_value)
+            adj.disconnect_by_func(restore_scroll_on_change)
+        
+        vadj.connect("changed", restore_scroll_on_change)
+        
+        # Atomic swap: Set new model to tree view
+        self.gpu_list_store = new_store
+        self.gpu_tree_view.set_model(self.gpu_list_store)
         
         # Restore selection by PID from persistent selection
         selection = self.gpu_tree_view.get_selection()
@@ -343,13 +369,6 @@ class GPUTabMixin:
                     selection.select_path(Gtk.TreePath.new_from_indices([i]))
         
         self._updating_selection = False
-        
-        # Restore scroll position using one-shot handler on adjustment change
-        def restore_scroll_once(adj):
-            adj.set_value(scroll_value)
-            adj.disconnect_by_func(restore_scroll_once)
-        
-        vadj.connect("changed", restore_scroll_once)
         
         # Update the selection panel
         self.update_selection_panel()
