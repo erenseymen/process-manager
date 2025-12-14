@@ -55,11 +55,12 @@ class GPUTabMixin:
             ("CPU %", 1, 80),
             ("Memory", 2, 100),
             ("PID", 3, 80),
+            ("Started", 4, 100),
         ]
         
         # Add GPU-specific columns
         gpu_columns = []
-        col_id = 4
+        col_id = 5  # Start after base columns (0-4)
         if 'nvidia' in gpu_types:
             gpu_columns.append(("NVIDIA GPU %", col_id, 100))
             col_id += 1
@@ -82,11 +83,11 @@ class GPUTabMixin:
             gpu_columns.append(("AMD Dec %", col_id, 100))
             col_id += 1
         
-        # Calculate total columns needed (minimum 4 for base columns)
-        total_cols = max(4, 4 + len(gpu_columns))
+        # Calculate total columns needed (minimum 5 for base columns)
+        total_cols = max(5, 5 + len(gpu_columns))
         
         # Create list store with dynamic columns
-        # Columns: name, cpu, memory, pid, then GPU columns
+        # Columns: name, cpu, memory, pid, started, then GPU columns
         col_types = [str] * total_cols
         col_types[3] = int  # PID is int
         self.gpu_list_store = Gtk.ListStore(*col_types)
@@ -130,7 +131,7 @@ class GPUTabMixin:
         
         # Store column mapping for GPU data
         self.gpu_column_mapping = {}
-        col_idx = 4
+        col_idx = 5  # Start after base columns (0-4)
         if 'nvidia' in gpu_types:
             self.gpu_column_mapping['nvidia'] = {
                 'gpu': col_idx,
@@ -159,6 +160,13 @@ class GPUTabMixin:
     def on_gpu_selection_changed(self, selection):
         """Handle selection changes for GPU tab - sync with persistent selected_pids."""
         self._handle_selection_changed(selection, self.gpu_list_store, pid_column=3, user_column=None)
+    
+    def sort_gpu_started(self, model, iter1, iter2, user_data):
+        """Sort by started time (reversed: newest first on initial click)."""
+        val1 = model.get_value(iter1, 4)
+        val2 = model.get_value(iter2, 4)
+        # Reversed for descending on first click (newest/latest time first)
+        return (val2 > val1) - (val2 < val1)
     
     def on_gpu_right_click(self, gesture, n_press, x, y):
         """Handle right-click context menu for GPU tab."""
@@ -236,6 +244,7 @@ class GPUTabMixin:
                     'name': proc_info['name'],
                     'cpu': proc_info['cpu'],
                     'memory': proc_info['memory'],
+                    'started': proc_info.get('started', ''),
                     'gpu_info': gpu_info
                 })
         
@@ -255,6 +264,7 @@ class GPUTabMixin:
                         'name': name,
                         'cpu': 0.0,
                         'memory': 0,
+                        'started': '',
                         'gpu_info': gpu_info
                     })
                 except Exception:
@@ -282,6 +292,7 @@ class GPUTabMixin:
                         'name': proc['name'],
                         'cpu': proc['cpu'],
                         'memory': proc['memory'],
+                        'started': proc.get('started', ''),
                         'gpu_info': gpu_info
                     })
         
@@ -298,17 +309,21 @@ class GPUTabMixin:
         self._updating_selection = True
         
         # Calculate total columns needed
-        total_cols = 4 + len(self.gpu_column_mapping) * 3
+        total_cols = 5 + len(self.gpu_column_mapping) * 3
         col_types = [str] * total_cols
         col_types[3] = int  # PID is int
         new_store = Gtk.ListStore(*col_types)
+        
+        # Attach sort function for Started column
+        new_store.set_sort_func(4, self.sort_gpu_started, None)
         
         for proc in combined_processes:
             row_data = [
                 proc['name'],
                 f"{proc['cpu']:.1f}%",
                 self.format_memory(proc['memory']),
-                proc['pid']
+                proc['pid'],
+                proc.get('started', '')
             ]
             
             # Add GPU columns based on available GPUs

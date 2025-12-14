@@ -68,9 +68,9 @@ class PortsTabMixin:
     def create_ports_view(self):
         """Create the ports list view."""
         # Start with ListStore (will switch to TreeStore in refresh_ports if grouping is enabled)
-        # Columns: name, pid, protocol, local_address, local_port, remote_address, remote_port, state,
+        # Columns: name, pid, started, protocol, local_address, local_port, remote_address, remote_port, state,
         # bytes_sent, bytes_recv, bytes_sent_rate, bytes_recv_rate
-        self.ports_list_store = Gtk.ListStore(str, int, str, str, int, str, int, str, str, str, str, str)
+        self.ports_list_store = Gtk.ListStore(str, int, str, str, str, int, str, int, str, str, str, str, str)
         
         # Create tree view
         tree_view = Gtk.TreeView(model=self.ports_list_store)
@@ -100,16 +100,17 @@ class PortsTabMixin:
         columns = [
             ("Process Name", 0, 200),
             ("PID", 1, 80),
-            ("Protocol", 2, 80),
-            ("Local Address", 3, 150),
-            ("Local Port", 4, 100),
-            ("Remote Address", 5, 150),
-            ("Remote Port", 6, 100),
-            ("State", 7, 100),
-            ("Sent", 8, 100),
-            ("Received", 9, 100),
-            ("Sent/s", 10, 100),
-            ("Recv/s", 11, 100),
+            ("Started", 2, 100),
+            ("Protocol", 3, 80),
+            ("Local Address", 4, 150),
+            ("Local Port", 5, 100),
+            ("Remote Address", 6, 150),
+            ("Remote Port", 7, 100),
+            ("State", 8, 100),
+            ("Sent", 9, 100),
+            ("Received", 10, 100),
+            ("Sent/s", 11, 100),
+            ("Recv/s", 12, 100),
         ]
         
         for i, (title, col_id, width) in enumerate(columns):
@@ -125,22 +126,23 @@ class PortsTabMixin:
             column.set_clickable(True)
             
             # Right-align numeric columns
-            if col_id in [8, 9, 10, 11]:  # Traffic columns
+            if col_id in [9, 10, 11, 12]:  # Traffic columns
                 renderer.set_property("xalign", 1.0)
             
             tree_view.append_column(column)
         
         # Custom sorting for numeric columns
         self.ports_list_store.set_sort_func(1, self.sort_pid, None)  # PID
-        self.ports_list_store.set_sort_func(4, self.sort_local_port, None)  # Local Port
-        self.ports_list_store.set_sort_func(6, self.sort_remote_port, None)  # Remote Port
-        self.ports_list_store.set_sort_func(8, self.sort_bytes, 8)  # Bytes Sent
-        self.ports_list_store.set_sort_func(9, self.sort_bytes, 9)  # Bytes Received
-        self.ports_list_store.set_sort_func(10, self.sort_bytes_rate, 10)  # Sent/s
-        self.ports_list_store.set_sort_func(11, self.sort_bytes_rate, 11)  # Recv/s
+        self.ports_list_store.set_sort_func(2, self.sort_started, None)  # Started
+        self.ports_list_store.set_sort_func(5, self.sort_local_port, None)  # Local Port
+        self.ports_list_store.set_sort_func(7, self.sort_remote_port, None)  # Remote Port
+        self.ports_list_store.set_sort_func(9, self.sort_bytes, 9)  # Bytes Sent
+        self.ports_list_store.set_sort_func(10, self.sort_bytes, 10)  # Bytes Received
+        self.ports_list_store.set_sort_func(11, self.sort_bytes_rate, 11)  # Sent/s
+        self.ports_list_store.set_sort_func(12, self.sort_bytes_rate, 12)  # Recv/s
         
         # Default sort by local port
-        self.ports_list_store.set_sort_column_id(4, Gtk.SortType.ASCENDING)
+        self.ports_list_store.set_sort_column_id(5, Gtk.SortType.ASCENDING)
         
         self.ports_tree_view = tree_view
         return tree_view
@@ -162,11 +164,11 @@ class PortsTabMixin:
         for path in paths:
             iter = model.get_iter(path)
             pid = model.get_value(iter, 1)           # PID column
-            protocol = model.get_value(iter, 2)      # Protocol column
-            local_addr = model.get_value(iter, 3)    # Local Address column
-            local_port = model.get_value(iter, 4)    # Local Port column
-            remote_addr = model.get_value(iter, 5)   # Remote Address column
-            remote_port = model.get_value(iter, 6)   # Remote Port column
+            protocol = model.get_value(iter, 3)      # Protocol column
+            local_addr = model.get_value(iter, 4)    # Local Address column
+            local_port = model.get_value(iter, 5)    # Local Port column
+            remote_addr = model.get_value(iter, 6)   # Remote Address column
+            remote_port = model.get_value(iter, 7)   # Remote Port column
             name = model.get_value(iter, 0)
             
             if pid and pid != 0:
@@ -196,11 +198,11 @@ class PortsTabMixin:
                 
                 while iter:
                     pid = model.get_value(iter, 1)
-                    protocol = model.get_value(iter, 2)
-                    local_addr = model.get_value(iter, 3)
-                    local_port = model.get_value(iter, 4)
-                    remote_addr = model.get_value(iter, 5)
-                    remote_port = model.get_value(iter, 6)
+                    protocol = model.get_value(iter, 3)
+                    local_addr = model.get_value(iter, 4)
+                    local_port = model.get_value(iter, 5)
+                    remote_addr = model.get_value(iter, 6)
+                    remote_port = model.get_value(iter, 7)
                     if pid and pid != 0:
                         visible_port_keys.add(self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port))
                         visible_pids.add(pid)
@@ -212,11 +214,11 @@ class PortsTabMixin:
             else:
                 for row in model:
                     pid = row[1]
-                    protocol = row[2]
-                    local_addr = row[3]
-                    local_port = row[4]
-                    remote_addr = row[5]
-                    remote_port = row[6]
+                    protocol = row[3]
+                    local_addr = row[4]
+                    local_port = row[5]
+                    remote_addr = row[6]
+                    remote_port = row[7]
                     if pid and pid != 0:
                         visible_port_keys.add(self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port))
                         visible_pids.add(pid)
@@ -252,16 +254,23 @@ class PortsTabMixin:
         # Update the selection panel
         self.update_selection_panel()
     
+    def sort_started(self, model, iter1, iter2, user_data):
+        """Sort by started time (reversed: newest first on initial click)."""
+        val1 = model.get_value(iter1, 2)
+        val2 = model.get_value(iter2, 2)
+        # Reversed for descending on first click (newest/latest time first)
+        return (val2 > val1) - (val2 < val1)
+    
     def sort_local_port(self, model, iter1, iter2, user_data):
         """Sort by local port number."""
-        val1 = model.get_value(iter1, 4)  # Local port column
-        val2 = model.get_value(iter2, 4)
+        val1 = model.get_value(iter1, 5)  # Local port column
+        val2 = model.get_value(iter2, 5)
         return (val1 > val2) - (val1 < val2)
     
     def sort_remote_port(self, model, iter1, iter2, user_data):
         """Sort by remote port number."""
-        val1 = model.get_value(iter1, 6)  # Remote port column
-        val2 = model.get_value(iter2, 6)
+        val1 = model.get_value(iter1, 7)  # Remote port column
+        val2 = model.get_value(iter2, 7)
         # Handle 0 values (for ports without remote connection)
         if val1 == 0:
             val1 = -1  # Put unconnected ports at the end
@@ -378,9 +387,9 @@ class PortsTabMixin:
         
         # Double buffering: Create new model, populate it, then swap
         if group_processes_mode:
-            new_store = Gtk.TreeStore(str, int, str, str, int, str, int, str, str, str, str, str)
+            new_store = Gtk.TreeStore(str, int, str, str, str, int, str, int, str, str, str, str, str)
         else:
-            new_store = Gtk.ListStore(str, int, str, str, int, str, int, str, str, str, str, str)
+            new_store = Gtk.ListStore(str, int, str, str, str, int, str, int, str, str, str, str, str)
         
         if group_processes_mode:
             # Group ports by PID with TreeStore (expandable rows)
@@ -455,10 +464,16 @@ class PortsTabMixin:
                 # Show connection count in remote address column
                 remote_addr_str = f"{num_ports} connection{'s' if num_ports > 1 else ''}"
                 
+                # Get started time from process info
+                started_str = ''
+                if pid in all_process_map:
+                    started_str = all_process_map[pid].get('started', '')
+                
                 # Create parent row
                 parent_iter = new_store.append(None, [
                     group_data['name'],
                     pid,
+                    started_str,
                     protocol_str,
                     local_addr_str,
                     local_port_value,
@@ -488,10 +503,16 @@ class PortsTabMixin:
                     port_bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
                     port_bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
                     
+                    # Get started time from process info
+                    port_started_str = ''
+                    if pid in all_process_map:
+                        port_started_str = all_process_map[pid].get('started', '')
+                    
                     # Add child row
                     new_store.append(parent_iter, [
                         port.get('name') or 'N/A',
                         pid,  # Same PID as parent
+                        port_started_str,
                         port.get('protocol', 'N/A'),
                         port.get('local_address', 'N/A'),
                         port.get('local_port', 0),
@@ -521,9 +542,16 @@ class PortsTabMixin:
                 bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
                 bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
                 
+                # Get started time from process info
+                pid = port.get('pid') or 0
+                started_str = ''
+                if pid in all_process_map:
+                    started_str = all_process_map[pid].get('started', '')
+                
                 new_store.append([
                     port.get('name') or 'N/A',
-                    port.get('pid') or 0,
+                    pid,
+                    started_str,
                     port.get('protocol', 'N/A'),
                     port.get('local_address', 'N/A'),
                     port.get('local_port', 0),
@@ -538,12 +566,13 @@ class PortsTabMixin:
         
         # Attach sort functions to new store
         new_store.set_sort_func(1, self.sort_pid, None)
-        new_store.set_sort_func(4, self.sort_local_port, None)
-        new_store.set_sort_func(6, self.sort_remote_port, None)
-        new_store.set_sort_func(8, self.sort_bytes, 8)
+        new_store.set_sort_func(2, self.sort_started, None)
+        new_store.set_sort_func(5, self.sort_local_port, None)
+        new_store.set_sort_func(7, self.sort_remote_port, None)
         new_store.set_sort_func(9, self.sort_bytes, 9)
-        new_store.set_sort_func(10, self.sort_bytes_rate, 10)
+        new_store.set_sort_func(10, self.sort_bytes, 10)
         new_store.set_sort_func(11, self.sort_bytes_rate, 11)
+        new_store.set_sort_func(12, self.sort_bytes_rate, 12)
         
         # Restore sort column from old store if it exists
         try:
@@ -551,7 +580,7 @@ class PortsTabMixin:
             if sort_col_id is not None and sort_col_id >= 0:
                 new_store.set_sort_column_id(sort_col_id, sort_order)
         except:
-            new_store.set_sort_column_id(4, Gtk.SortType.ASCENDING)
+            new_store.set_sort_column_id(5, Gtk.SortType.ASCENDING)  # Sort by local port
         
         # Atomic swap: Set new model to tree view
         self.ports_list_store = new_store
@@ -586,11 +615,11 @@ class PortsTabMixin:
                     while iter:
                         current_path = self.ports_list_store.get_path(iter)
                         pid = self.ports_list_store.get_value(iter, 1)           # PID column
-                        protocol = self.ports_list_store.get_value(iter, 2)      # Protocol column
-                        local_addr = self.ports_list_store.get_value(iter, 3)    # Local Address column
-                        local_port = self.ports_list_store.get_value(iter, 4)    # Local Port column
-                        remote_addr = self.ports_list_store.get_value(iter, 5)   # Remote Address column
-                        remote_port = self.ports_list_store.get_value(iter, 6)   # Remote Port column
+                        protocol = self.ports_list_store.get_value(iter, 3)      # Protocol column
+                        local_addr = self.ports_list_store.get_value(iter, 4)    # Local Address column
+                        local_port = self.ports_list_store.get_value(iter, 5)    # Local Port column
+                        remote_addr = self.ports_list_store.get_value(iter, 6)   # Remote Address column
+                        remote_port = self.ports_list_store.get_value(iter, 7)   # Remote Port column
                         
                         if pid and pid != 0:
                             port_key = self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port)
@@ -610,11 +639,11 @@ class PortsTabMixin:
                 # For ListStore, select only first matching row for each port key
                 for i, row in enumerate(self.ports_list_store):
                     pid = row[1]           # PID column
-                    protocol = row[2]      # Protocol column
-                    local_addr = row[3]    # Local Address column
-                    local_port = row[4]    # Local Port column
-                    remote_addr = row[5]   # Remote Address column
-                    remote_port = row[6]   # Remote Port column
+                    protocol = row[3]      # Protocol column
+                    local_addr = row[4]    # Local Address column
+                    local_port = row[5]    # Local Port column
+                    remote_addr = row[6]   # Remote Address column
+                    remote_port = row[7]   # Remote Port column
                     if pid and pid != 0:
                         port_key = self._get_port_key(pid, protocol, local_addr, local_port, remote_addr, remote_port)
                         # Only select if key is in selected_port_keys AND not already selected
