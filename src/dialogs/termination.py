@@ -15,23 +15,25 @@ from gi.repository import Gtk, Adw, GLib, Gdk
 class TerminationDialog(Adw.Window):
     """Dialog for terminating processes with status tracking."""
     
-    def __init__(self, parent, process_manager, processes):
+    def __init__(self, parent, process_manager, processes, skip_confirmation=False):
         """
         Args:
             parent: Parent window
             process_manager: ProcessManager instance
             processes: List of dicts with 'pid' and 'name' keys
+            skip_confirmation: If True, skip confirmation and go directly to kill mode
         """
         super().__init__(
             transient_for=parent,
             modal=True,
-            title="End Processes",
+            title="End Processes" if not skip_confirmation else "Force Kill Processes",
             default_width=450,
             default_height=400,
         )
         
         self.parent_window = parent
         self.process_manager = process_manager
+        self.skip_confirmation = skip_confirmation
         
         # Group processes by name
         self.process_groups = {}
@@ -45,9 +47,42 @@ class TerminationDialog(Adw.Window):
         # Keep individual process tracking for status
         self.processes = {p['pid']: {'name': p['name'], 'status': 'pending'} for p in processes}
         self.check_timeout_id = None
-        self.confirmed = False
+        self.confirmed = skip_confirmation  # Start confirmed if skipping confirmation
         
         self.build_ui()
+        
+        # If skipping confirmation, start in kill mode immediately
+        if skip_confirmation:
+            GLib.idle_add(self._start_skip_confirmation_mode)
+    
+    def _start_skip_confirmation_mode(self):
+        """Start the dialog in skip confirmation mode (already sent SIGTERM)."""
+        # Mark all processes as running (they didn't terminate from SIGTERM)
+        for pid in self.processes:
+            self.processes[pid]['status'] = 'running'
+        
+        # Hide confirmation buttons
+        self.cancel_button.set_visible(False)
+        self.confirm_button.set_visible(False)
+        
+        # Show close button
+        self.close_button.set_visible(True)
+        
+        # Update all process group rows to show kill buttons
+        for name in self.process_rows:
+            self.update_process_row(name)
+        
+        # Update status label
+        self.update_status_label()
+        
+        # Show kill all button
+        self.kill_all_button.set_visible(True)
+        self.kill_all_button.grab_focus()
+        
+        # Start status checking
+        self.start_status_check()
+        
+        return False  # Don't repeat
     
     def build_ui(self):
         """Build the dialog UI."""
@@ -185,6 +220,12 @@ class TerminationDialog(Adw.Window):
                 self.status_label.set_markup(
                     f"<b>All {total} process(es) have been terminated.</b>"
                 )
+            elif self.skip_confirmation:
+                # Skip confirmation mode - processes didn't respond to SIGTERM
+                self.status_label.set_markup(
+                    f"<b>{running} process(es) didn't respond to termination signal.</b>\n"
+                    "You can force kill them with SIGKILL."
+                )
             else:
                 self.status_label.set_markup(
                     f"<b>Terminated: {terminated}/{total}</b>\n"
@@ -301,27 +342,48 @@ class TerminationDialog(Adw.Window):
     
     def on_kill_group(self, name, pids):
         """Handle kill button for a process group."""
+        errors = []
         for pid in pids:
             if pid in self.processes and self.processes[pid]['status'] == 'running':
                 try:
                     self.process_manager.kill_process(pid, signal.SIGKILL)
-                except Exception:
-                    pass
+                except Exception as e:
+                    errors.append(f"PID {pid}: {e}")
+        
+        # Show error toast if any kills failed
+        if errors and self.parent_window:
+            self._show_kill_error(errors)
         
         # Immediately check status
         GLib.timeout_add(100, self.check_processes_status)
     
     def on_kill_all(self, button):
         """Handle kill all button - send SIGKILL to all running processes."""
+        errors = []
         for pid, info in self.processes.items():
             if info['status'] == 'running':
                 try:
                     self.process_manager.kill_process(pid, signal.SIGKILL)
-                except Exception:
-                    pass
+                except Exception as e:
+                    process_name = info.get('name', 'Unknown')
+                    errors.append(f"{process_name} (PID {pid}): {e}")
+        
+        # Show error toast if any kills failed
+        if errors and self.parent_window:
+            self._show_kill_error(errors)
         
         # Immediately check status
         GLib.timeout_add(100, self.check_processes_status)
+    
+    def _show_kill_error(self, errors):
+        """Show kill errors as toast notification."""
+        if len(errors) == 1:
+            message = f"Failed to kill: {errors[0]}"
+        else:
+            message = f"Failed to kill {len(errors)} process(es)"
+        
+        toast = Adw.Toast(title=message, timeout=5)
+        self.parent_window.toast_overlay.add_toast(toast)
     
     def on_close(self, button):
         """Handle close button click."""

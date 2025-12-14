@@ -24,7 +24,11 @@ class ProcessActionsMixin:
     """
     
     def terminate_selected_processes(self):
-        """Terminate selected processes using SIGTERM."""
+        """Terminate selected processes using SIGTERM.
+        
+        Terminates processes directly without confirmation. If any processes
+        fail to terminate after a delay, shows a dialog with force kill option.
+        """
         if not self.selected_pids:
             return
         
@@ -32,21 +36,42 @@ class ProcessActionsMixin:
         for pid, info in self.selected_pids.items():
             processes.append({'pid': pid, 'name': info.get('name', 'Unknown')})
         
-        if self.settings.get("confirm_kill"):
-            self.show_termination_dialog(processes)
-        else:
-            # Send SIGTERM to all selected processes
-            for pid in list(self.selected_pids.keys()):
-                try:
-                    self.process_manager.kill_process(pid)
-                    # Remove from persistent selection
+        # Send SIGTERM to all selected processes immediately
+        for pid in list(self.selected_pids.keys()):
+            try:
+                self.process_manager.kill_process(pid)
+            except Exception as e:
+                self.show_error(f"Failed to terminate process {pid}: {e}")
+        
+        # After a short delay, check if any processes are still running
+        # and show dialog only for those that failed to terminate
+        def check_and_show_dialog():
+            from ..ps_commands import is_process_running_via_host
+            
+            still_running = []
+            for process in processes:
+                pid = process['pid']
+                if is_process_running_via_host(pid):
+                    still_running.append(process)
+                else:
+                    # Process terminated successfully, remove from selection
                     if pid in self.selected_pids:
                         del self.selected_pids[pid]
-                except Exception as e:
-                    self.show_error(f"Failed to terminate process {pid}: {e}")
             
-            # Refresh after killing
-            GLib.timeout_add(500, self._refresh_current_tab)
+            if still_running:
+                # Show dialog only for processes that failed to terminate
+                dialog = TerminationDialog(
+                    self, self.process_manager, still_running, skip_confirmation=True
+                )
+                dialog.present()
+            else:
+                # All processes terminated, just refresh
+                self._refresh_current_tab()
+            
+            return False  # Don't repeat
+        
+        # Wait 500ms for processes to terminate, then check
+        GLib.timeout_add(500, check_and_show_dialog)
     
     def force_kill_selected_processes(self):
         """Force kill selected processes using SIGKILL."""
@@ -81,10 +106,8 @@ class ProcessActionsMixin:
             name = model.get_value(iter, 0)
             processes.append({'pid': pid, 'name': name})
         
-        if self.settings.get("confirm_kill"):
-            self.show_termination_dialog(processes)
-        else:
-            self.kill_processes_direct([p['pid'] for p in processes])
+        # Send SIGTERM to all processes directly (no confirmation)
+        self.kill_processes_direct(processes)
     
     def show_termination_dialog(self, processes):
         """Show termination dialog with status tracking."""
@@ -96,19 +119,55 @@ class ProcessActionsMixin:
         shortcuts_window = ShortcutsWindow(self)
         shortcuts_window.present()
     
-    def kill_processes_direct(self, pids):
-        """Kill the specified processes directly without dialog."""
-        for pid in pids:
+    def kill_processes_direct(self, processes):
+        """Kill the specified processes directly without confirmation.
+        
+        Sends SIGTERM and after a delay checks if processes terminated.
+        If any are still running, shows a dialog with force kill option.
+        
+        Args:
+            processes: List of dicts with 'pid' and 'name' keys, OR list of PIDs
+        """
+        # Handle both old (list of PIDs) and new (list of dicts) format
+        if processes and isinstance(processes[0], int):
+            processes = [{'pid': pid, 'name': 'Unknown'} for pid in processes]
+        
+        # Send SIGTERM to all processes
+        for process in processes:
+            pid = process['pid']
             try:
                 self.process_manager.kill_process(pid)
-                # Remove from persistent selection
-                if pid in self.selected_pids:
-                    del self.selected_pids[pid]
             except Exception as e:
-                self.show_error(f"Failed to kill process {pid}: {e}")
+                self.show_error(f"Failed to terminate process {pid}: {e}")
         
-        # Refresh after killing
-        GLib.timeout_add(500, self._refresh_current_tab)
+        # After a short delay, check if any processes are still running
+        def check_and_show_dialog():
+            from ..ps_commands import is_process_running_via_host
+            
+            still_running = []
+            for process in processes:
+                pid = process['pid']
+                if is_process_running_via_host(pid):
+                    still_running.append(process)
+                else:
+                    # Process terminated successfully, remove from selection
+                    if pid in self.selected_pids:
+                        del self.selected_pids[pid]
+            
+            if still_running:
+                # Show dialog only for processes that failed to terminate
+                dialog = TerminationDialog(
+                    self, self.process_manager, still_running, skip_confirmation=True
+                )
+                dialog.present()
+            else:
+                # All processes terminated, just refresh
+                self._refresh_current_tab()
+            
+            return False  # Don't repeat
+        
+        # Wait 500ms for processes to terminate, then check
+        GLib.timeout_add(500, check_and_show_dialog)
     
     def show_error(self, message):
         """Show error toast."""
