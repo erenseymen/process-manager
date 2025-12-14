@@ -245,6 +245,7 @@ class GPUTabMixin:
                     'cpu': proc_info['cpu'],
                     'memory': proc_info['memory'],
                     'started': proc_info.get('started', ''),
+                    'started_ts': proc_info.get('started_ts', proc_info.get('started', '')),
                     'gpu_info': gpu_info
                 })
         
@@ -265,6 +266,7 @@ class GPUTabMixin:
                         'cpu': 0.0,
                         'memory': 0,
                         'started': '',
+                        'started_ts': '',
                         'gpu_info': gpu_info
                     })
                 except Exception:
@@ -293,6 +295,7 @@ class GPUTabMixin:
                         'cpu': proc['cpu'],
                         'memory': proc['memory'],
                         'started': proc.get('started', ''),
+                        'started_ts': proc.get('started_ts', proc.get('started', '')),
                         'gpu_info': gpu_info
                     })
         
@@ -323,7 +326,7 @@ class GPUTabMixin:
                 f"{proc['cpu']:.1f}%",
                 self.format_memory(proc['memory']),
                 proc['pid'],
-                proc.get('started', '')
+                proc.get('started_ts', proc.get('started', ''))
             ]
             
             # Add GPU columns based on available GPUs

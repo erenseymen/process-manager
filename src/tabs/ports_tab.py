@@ -464,10 +464,10 @@ class PortsTabMixin:
                 # Show connection count in remote address column
                 remote_addr_str = f"{num_ports} connection{'s' if num_ports > 1 else ''}"
                 
-                # Get started time from process info
+                # Get started time from process info (use sortable timestamp)
                 started_str = ''
                 if pid in all_process_map:
-                    started_str = all_process_map[pid].get('started', '')
+                    started_str = all_process_map[pid].get('started_ts', all_process_map[pid].get('started', ''))
                 
                 # Create parent row
                 parent_iter = new_store.append(None, [
@@ -503,10 +503,10 @@ class PortsTabMixin:
                     port_bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
                     port_bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
                     
-                    # Get started time from process info
+                    # Get started time from process info (use sortable timestamp)
                     port_started_str = ''
                     if pid in all_process_map:
-                        port_started_str = all_process_map[pid].get('started', '')
+                        port_started_str = all_process_map[pid].get('started_ts', all_process_map[pid].get('started', ''))
                     
                     # Add child row
                     new_store.append(parent_iter, [
@@ -542,11 +542,11 @@ class PortsTabMixin:
                 bytes_sent_rate_str = f"{self.format_bytes(bytes_sent_rate)}/s" if bytes_sent_rate > 0 else '-'
                 bytes_recv_rate_str = f"{self.format_bytes(bytes_recv_rate)}/s" if bytes_recv_rate > 0 else '-'
                 
-                # Get started time from process info
+                # Get started time from process info (use sortable timestamp)
                 pid = port.get('pid') or 0
                 started_str = ''
                 if pid in all_process_map:
-                    started_str = all_process_map[pid].get('started', '')
+                    started_str = all_process_map[pid].get('started_ts', all_process_map[pid].get('started', ''))
                 
                 new_store.append([
                     port.get('name') or 'N/A',

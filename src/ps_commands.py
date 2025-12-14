@@ -65,6 +65,18 @@ def get_processes_via_ps(
     processes: List[Dict[str, Any]] = []
     my_pid = os.getpid()
     
+    # Month name mapping (supports both English and localized names)
+    # ps uses locale-dependent month names, so we'll try to parse them
+    month_map = {
+        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+        'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+        'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+        # Turkish month names
+        'oca': '01', 'şub': '02', 'mar': '03', 'nis': '04',
+        'may': '05', 'haz': '06', 'tem': '07', 'ağu': '08',
+        'eyl': '09', 'eki': '10', 'kas': '11', 'ara': '12',
+    }
+    
     try:
         # Use ps with custom format to get all needed info
         # pid, comm, %cpu, rss (in KB), lstart, user, nice, uid, state, ppid
@@ -89,7 +101,22 @@ def get_processes_via_ps(
                 memory_bytes = memory_kb * 1024
                 
                 # lstart is 5 fields: Day Mon DD HH:MM:SS YYYY
-                started_str = parts[7]  # Just use time part HH:MM:SS
+                # parts[4] = Day (e.g., "Sat", "Cts")
+                # parts[5] = Month (e.g., "Dec", "Ara")
+                # parts[6] = Day of month (e.g., "13")
+                # parts[7] = Time (e.g., "10:07:43")
+                # parts[8] = Year (e.g., "2025")
+                month_name = parts[5].lower()[:3]
+                month_num = month_map.get(month_name, '01')
+                day_of_month = parts[6].zfill(2)
+                time_str = parts[7]  # HH:MM:SS
+                year = parts[8]
+                
+                # Create sortable timestamp: YYYY-MM-DD HH:MM:SS
+                started_ts = f"{year}-{month_num}-{day_of_month} {time_str}"
+                
+                # Display string: just time for simplicity
+                started_str = time_str
                 
                 # Rest of fields after lstart
                 user = parts[9]
@@ -120,6 +147,7 @@ def get_processes_via_ps(
                     'cpu': cpu,
                     'memory': memory_bytes,
                     'started': started_str,
+                    'started_ts': started_ts,  # Sortable timestamp: YYYY-MM-DD HH:MM:SS
                     'user': user,
                     'nice': nice,
                     'uid': uid,
