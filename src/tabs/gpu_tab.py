@@ -311,6 +311,9 @@ class GPUTabMixin:
         # Double buffering: Create new model, populate it, then swap
         self._updating_selection = True
         
+        # Save current sort state before swapping model
+        sort_column_id, sort_order = self.gpu_list_store.get_sort_column_id()
+        
         # Calculate total columns needed
         total_cols = 5 + len(self.gpu_column_mapping) * 3
         col_types = [str] * total_cols
@@ -378,6 +381,10 @@ class GPUTabMixin:
         # Atomic swap: Set new model to tree view
         self.gpu_list_store = new_store
         self.gpu_tree_view.set_model(self.gpu_list_store)
+        
+        # Restore sort state after model swap
+        if sort_column_id is not None and sort_column_id >= 0:
+            self.gpu_list_store.set_sort_column_id(sort_column_id, sort_order)
         
         # Restore selection by PID from persistent selection
         selection = self.gpu_tree_view.get_selection()
