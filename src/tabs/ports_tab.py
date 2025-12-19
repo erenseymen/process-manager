@@ -358,11 +358,23 @@ class PortsTabMixin:
         if search_text:
             filtered_ports = []
             for port in ports:
+                # Get started time from process map if available
+                pid = port.get('pid')
+                started_str = ''
+                if pid and pid in all_process_map:
+                    started_str = (all_process_map[pid].get('started_ts', '') or 
+                                  all_process_map[pid].get('started', '') or '').lower()
+                
+                # Check if search text matches any filterable field
                 if (search_text in (port.get('name') or '').lower() or
                     search_text in str(port.get('pid', '')) or
                     search_text in str(port.get('local_port', '')) or
                     search_text in (port.get('protocol', '')).lower() or
-                    search_text in (port.get('local_address', '')).lower()):
+                    search_text in (port.get('local_address', '')).lower() or
+                    search_text in str(port.get('remote_port', '')) or
+                    search_text in (port.get('remote_address') or '').lower() or
+                    search_text in (port.get('state', '')).lower() or
+                    (started_str and search_text in started_str)):
                     filtered_ports.append(port)
             ports = filtered_ports
         
