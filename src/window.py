@@ -1016,13 +1016,21 @@ class ProcessManagerWindow(
         return False  # Don't repeat
     
     def on_close_request(self, window):
-        """Handle window close."""
-        # Stop refresh timer
+        """Handle window close.
+        
+        Closes the window immediately. Background cleanup (like stopping GPU 
+        monitoring threads) happens asynchronously - daemon threads will be 
+        terminated automatically when the main application exits.
+        """
+        # Stop refresh timer immediately
         if self.refresh_timeout_id:
             GLib.source_remove(self.refresh_timeout_id)
+            self.refresh_timeout_id = None
         
-        # Stop GPU background updates
-        self.gpu_stats.stop_background_updates()
+        # Signal GPU background thread to stop (non-blocking)
+        # The thread is a daemon thread, so it will be terminated automatically
+        # when the application exits - no need to wait for it
+        self.gpu_stats._stop_event.set()
         
         # Save window size
         width = self.get_width()
@@ -1030,11 +1038,16 @@ class ProcessManagerWindow(
         self.settings.set("window_width", width)
         self.settings.set("window_height", height)
         
-        # Save process history
+        # Save process history in background to avoid blocking window close
         if self.process_history:
-            self.process_history.save_history()
+            import threading
+            threading.Thread(
+                target=self.process_history.save_history,
+                daemon=True,
+                name="HistorySaver"
+            ).start()
         
-        return False  # Allow close
+        return False  # Allow close immediately
     
     def show_selected_process_details(self):
         """Show process details dialog for the selected process."""
