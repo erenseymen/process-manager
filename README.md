@@ -15,7 +15,7 @@ A modern, GTK4-based system process manager for Linux.
 - **Process Comparison**: Compare selected processes with visual memory and CPU bars
 - **System Stats**: Real-time memory, swap, disk, and GPU usage display with visual indicators
 - **Process Control**: End processes with optional confirmation
-- **Filter**: Quickly find processes by name, PID, or user
+- **Filter**: Quickly find processes by name, PID, or user. Supports OR filtering with `|` separator (e.g., `firefox|chrome`)
 - **Sortable Columns**: Sort by Process Name, CPU, Memory, Started, User, Nice, or PID
 - **Single Instance**: Only one instance of the app runs at a time
 - **Modern UI**: Built with GTK4 and libadwaita for a native GNOME experience

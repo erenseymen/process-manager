@@ -356,8 +356,17 @@ class PortsTabMixin:
         
         # Filter by search text if provided
         if search_text:
-            filtered_ports = []
-            for port in ports:
+            # Support OR filtering with | separator
+            if '|' in search_text:
+                patterns = [p.strip() for p in search_text.split('|') if p.strip()]
+            else:
+                patterns = [search_text] if search_text else []
+            
+            def matches_port(port, patterns):
+                """Check if port matches any of the search patterns."""
+                if not patterns:
+                    return True
+                
                 # Get started time from process map if available
                 pid = port.get('pid')
                 started_str = ''
@@ -365,17 +374,31 @@ class PortsTabMixin:
                     started_str = (all_process_map[pid].get('started_ts', '') or 
                                   all_process_map[pid].get('started', '') or '').lower()
                 
-                # Check if search text matches any filterable field
-                if (search_text in (port.get('name') or '').lower() or
-                    search_text in str(port.get('pid', '')) or
-                    search_text in str(port.get('local_port', '')) or
-                    search_text in (port.get('protocol', '')).lower() or
-                    search_text in (port.get('local_address', '')).lower() or
-                    search_text in str(port.get('remote_port', '')) or
-                    search_text in (port.get('remote_address') or '').lower() or
-                    search_text in (port.get('state', '')).lower() or
-                    (started_str and search_text in started_str)):
-                    filtered_ports.append(port)
+                # Build searchable fields
+                name_lower = (port.get('name') or '').lower()
+                pid_str = str(port.get('pid', ''))
+                local_port_str = str(port.get('local_port', ''))
+                protocol_lower = (port.get('protocol', '')).lower()
+                local_addr_lower = (port.get('local_address', '')).lower()
+                remote_port_str = str(port.get('remote_port', ''))
+                remote_addr_lower = (port.get('remote_address') or '').lower()
+                state_lower = (port.get('state', '')).lower()
+                
+                # Check if any pattern matches any field
+                for pattern in patterns:
+                    if (pattern in name_lower or
+                        pattern in pid_str or
+                        pattern in local_port_str or
+                        pattern in protocol_lower or
+                        pattern in local_addr_lower or
+                        pattern in remote_port_str or
+                        pattern in remote_addr_lower or
+                        pattern in state_lower or
+                        (started_str and pattern in started_str)):
+                        return True
+                return False
+            
+            filtered_ports = [port for port in ports if matches_port(port, patterns)]
             ports = filtered_ports
         
         # Check if grouping is enabled

@@ -314,11 +314,27 @@ class GPUTabMixin:
         
         # Filter by search text
         if search_text:
+            # Support OR filtering with | separator
+            if '|' in search_text:
+                patterns = [p.strip() for p in search_text.split('|') if p.strip()]
+            else:
+                patterns = [search_text] if search_text else []
+            
+            def matches_gpu_search(proc, patterns):
+                """Check if GPU process matches any of the search patterns."""
+                if not patterns:
+                    return True
+                proc_name_lower = proc['name'].lower()
+                proc_pid_str = str(proc['pid'])
+                return any(
+                    pattern in proc_name_lower or pattern in proc_pid_str
+                    for pattern in patterns
+                )
+            
             # When searching, hide already selected items from results
             combined_processes = [
                 p for p in combined_processes
-                if (search_text in p['name'].lower() or search_text in str(p['pid']))
-                and p['pid'] not in self.selected_pids
+                if matches_gpu_search(p, patterns) and p['pid'] not in self.selected_pids
             ]
         else:
             # Get PIDs of combined processes

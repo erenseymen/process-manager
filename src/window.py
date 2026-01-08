@@ -829,9 +829,27 @@ class ProcessManagerWindow(
         search_text = self.search_entry.get_text().lower()
         
         def matches_search(proc):
-            """Check if process matches search text."""
+            """Check if process matches search text.
+            
+            Supports OR filtering with | separator.
+            Example: 'firefox|chrome' matches processes containing 'firefox' OR 'chrome'.
+            """
             if not search_text:
                 return True
+            
+            # Support OR filtering with | separator
+            if '|' in search_text:
+                patterns = [p.strip() for p in search_text.split('|') if p.strip()]
+                if not patterns:
+                    return True
+                # Match if any pattern matches name or PID
+                proc_name_lower = proc['name'].lower()
+                proc_pid_str = str(proc['pid'])
+                return any(
+                    pattern in proc_name_lower or pattern in proc_pid_str
+                    for pattern in patterns
+                )
+            
             return search_text in proc['name'].lower() or search_text in str(proc['pid'])
         
         # Filter by search
